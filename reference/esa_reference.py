@@ -9,8 +9,7 @@
 # x = numpy.random.uniform(-1, 1, 22)
 # score = udp.fitness(x)
 
-import heyoka as hy
-import pygmo as pg
+import heyoka as hy  # type: ignore[reportMissingImports]
 import numpy as np
 import scipy
 import PIL
@@ -124,8 +123,8 @@ def stm_factory(ic, T, mu, M, verbose=True):
     if verbose:
         print("--- %s seconds --- to construct all stms" % (time.time() - start_time))
 
-    ref_state = sol[4][:, :6]
-    stms = sol[4][:, 6:].reshape(M, 6, 6)
+    ref_state = sol[5][:, :6]
+    stms = sol[5][:, 6:].reshape(M, 6, 6)
     return (ref_state, stms)
 
 
