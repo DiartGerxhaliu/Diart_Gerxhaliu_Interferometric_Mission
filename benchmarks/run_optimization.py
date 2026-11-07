@@ -69,6 +69,12 @@ def parse_args():
     parser.add_argument("--iterations", type=int, default=2_000_000)
     parser.add_argument("--batch-size", type=int, default=2048)
     parser.add_argument("--population-size", type=int, default=256)
+    parser.add_argument(
+        "--algorithm",
+        choices=("de", "genetic"),
+        default="de",
+        help="GPU-batched differential evolution or the genetic baseline",
+    )
     parser.add_argument("--seed", type=int, default=43)
     parser.add_argument("--velocity-bound", type=float, default=10.0)
     parser.add_argument(
@@ -102,7 +108,14 @@ def random_candidates(count, lower, upper, n_sat, velocity_bound, rng):
 
 
 def mutate_candidates(
-    parents, lower, upper, n_sat, mutation_map, rng, temperature=1.0
+    parents,
+    lower,
+    upper,
+    n_sat,
+    mutation_map,
+    rng,
+    temperature=1.0,
+    step_multiplier=1.0,
 ):
     """Mutate whole satellite states in coordinates scaled by orbital sensitivity."""
     count = len(parents)
@@ -120,7 +133,7 @@ def mutate_candidates(
 
     cell_steps = np.exp(
         rng.uniform(np.log(0.35), np.log(8.0), size=count)
-    ) * np.clip(temperature, 0.15, 2.0)
+    ) * np.clip(temperature, 0.15, 2.0) * step_multiplier
     noise = rng.normal(size=(count, n_sat, 6))
     scaled_noise = np.einsum("bnj,ij->bni", noise, mutation_map)
     genes += scaled_noise * cell_steps[:, None, None] * changed[..., None]
@@ -151,6 +164,7 @@ def make_offspring(
     mutation_map,
     rng,
     temperature,
+    step_multiplier,
 ):
     """Breed a batch using rank selection, satellite-level crossover and mutation."""
     population_size = len(population)
@@ -182,21 +196,93 @@ def make_offspring(
         mutation_map,
         rng,
         temperature=max(temperature, 0.25),
+        step_multiplier=step_multiplier,
     )
 
-    immigrant_count = max(1, count // 20)
+    immigrant_count = max(1, count // 10)
     immigrant_rows = rng.choice(count, size=immigrant_count, replace=False)
     children[immigrant_rows] = random_candidates(
         immigrant_count, lower, upper, n_sat, velocity_bound, rng
     )
-    return children
+    return children, fitnesses[first], immigrant_rows
 
 
 def select_population(candidates, fitnesses, population_size, rng):
-    """Keep the strongest candidates, randomizing ties on the flat score landscape."""
+    """Keep strong elites plus weighted near-best candidates for diversity."""
     tie_break = rng.random(len(fitnesses)) * 1e-10
-    selected = np.lexsort((tie_break, fitnesses))[:population_size]
+    order = np.lexsort((tie_break, fitnesses))
+    elite_count = max(1, population_size // 2)
+    elites = order[:elite_count]
+
+    pool_end = min(len(order), population_size * 4)
+    pool = order[elite_count:pool_end]
+    needed = population_size - elite_count
+    if needed and len(pool) >= needed:
+        ranks = np.arange(len(pool), dtype=np.float64)
+        weights = np.exp(-ranks / max(1.0, population_size * 0.35))
+        weights /= weights.sum()
+        diverse = rng.choice(pool, size=needed, replace=False, p=weights)
+        selected = np.concatenate((elites, diverse))
+    else:
+        selected = order[:population_size]
     return candidates[selected].copy(), fitnesses[selected].copy()
+
+
+def make_de_offspring(
+    population,
+    count,
+    lower,
+    upper,
+    n_sat,
+    velocity_bound,
+    rng,
+    step_multiplier,
+    best_x,
+):
+    """Generate diverse differential-evolution trials, crossing whole satellites."""
+    population_size = len(population)
+    random_keys = rng.random((count, population_size))
+    indices = np.argsort(random_keys, axis=1)[:, :4]
+    targets, first, second, third = indices.T
+
+    factors = rng.uniform(0.35, 1.25, size=count) * step_multiplier
+    mutant = population[first] + factors[:, None] * (
+        population[second] - population[third]
+    )
+
+    current_to_best = rng.random(count) < 0.5
+    if current_to_best.any():
+        target_x = population[targets[current_to_best]]
+        mutant[current_to_best] = target_x + factors[current_to_best, None] * (
+            best_x - target_x
+        ) + factors[current_to_best, None] * (
+            population[first[current_to_best]] - population[second[current_to_best]]
+        )
+
+    rates = rng.choice(
+        np.asarray([0.05, 0.1, 0.25, 0.5, 0.9]),
+        size=count,
+        p=[0.10, 0.18, 0.28, 0.28, 0.16],
+    )
+    satellite_mask = rng.random((count, n_sat)) < rates[:, None]
+    empty = np.flatnonzero(~satellite_mask.any(axis=1))
+    if empty.size:
+        satellite_mask[empty, rng.integers(0, n_sat, size=empty.size)] = True
+
+    targets_x = population[targets].reshape(count, 6, n_sat).transpose(0, 2, 1)
+    mutant_x = mutant.reshape(count, 6, n_sat).transpose(0, 2, 1)
+    trials = targets_x.copy()
+    trials[satellite_mask] = mutant_x[satellite_mask]
+    trials = np.clip(
+        trials.transpose(0, 2, 1).reshape(count, 6 * n_sat), lower, upper
+    )
+
+    immigrant_count = max(1, count // 10)
+    immigrant_rows = rng.choice(count, size=immigrant_count, replace=False)
+    trials[immigrant_rows] = random_candidates(
+        immigrant_count, lower, upper, n_sat, velocity_bound, rng
+    )
+    return trials, targets, immigrant_rows
 
 
 def main():
@@ -297,6 +383,7 @@ def main():
         best_found_at = 0
         scored = len(population)
         stagnant_generations = 0
+        step_multiplier = 1.0
 
         improved = int(np.argmin(population_fitness))
         if population_fitness[improved] < best_fitness:
@@ -304,7 +391,7 @@ def main():
             best_fitness = float(population_fitness[improved])
             best_found_at = scored
 
-        print("Search: orbital-preconditioned evolutionary population")
+        print("Search:", args.algorithm, "| GPU-batched population")
         print("Case:", case_id, "| ESA problem:", spec["problem_id"])
         print("Objective: minimize ESA reference fitness")
         print("GPU:", torch.cuda.get_device_name(0))
@@ -321,20 +408,42 @@ def main():
         while scored < args.iterations:
             generation += 1
             batch_size = min(args.batch_size, args.iterations - scored)
-            children = make_offspring(
-                population,
-                population_fitness,
-                batch_size,
-                search_lower,
-                search_upper,
-                n_sat,
-                args.velocity_bound,
-                mutation_map,
-                rng,
-                args.temperature,
-            )
+            if args.algorithm == "de":
+                children, target_indices, immigrant_rows = make_de_offspring(
+                    population,
+                    batch_size,
+                    search_lower,
+                    search_upper,
+                    n_sat,
+                    args.velocity_bound,
+                    rng,
+                    step_multiplier,
+                    best_x,
+                )
+                parent_fitness = population_fitness[target_indices]
+            else:
+                children, parent_fitness, immigrant_rows = make_offspring(
+                    population,
+                    population_fitness,
+                    batch_size,
+                    search_lower,
+                    search_upper,
+                    n_sat,
+                    args.velocity_bound,
+                    mutation_map,
+                    rng,
+                    args.temperature,
+                    step_multiplier,
+                )
+                target_indices = None
             child_fitness = score_batch(children)
             scored += batch_size
+
+            eligible = np.ones(batch_size, dtype=bool)
+            eligible[immigrant_rows] = False
+            success_rate = float(
+                np.mean(child_fitness[eligible] < parent_fitness[eligible])
+            )
 
             child_best = int(np.argmin(child_fitness))
             if child_fitness[child_best] < best_fitness:
@@ -342,18 +451,35 @@ def main():
                 best_fitness = float(child_fitness[child_best])
                 best_found_at = scored
                 stagnant_generations = 0
+                step_multiplier = max(0.5, step_multiplier * 0.85)
                 print(
                     f"evaluations {scored:>9}: best fitness {best_fitness:.12g}",
                     flush=True,
                 )
             else:
                 stagnant_generations += 1
+                if success_rate > 0.02:
+                    step_multiplier = max(0.5, step_multiplier * 0.97)
+                else:
+                    # Widen exploration during a plateau instead of shrinking to
+                    # tiny moves that cannot escape the current grid pattern.
+                    step_multiplier = min(8.0, step_multiplier * np.exp(0.02))
 
-            combined_x = np.concatenate((population, children), axis=0)
-            combined_fitness = np.concatenate((population_fitness, child_fitness))
-            population, population_fitness = select_population(
-                combined_x, combined_fitness, args.population_size, rng
-            )
+            if args.algorithm == "de":
+                for target in np.unique(target_indices):
+                    trial_rows = np.flatnonzero(target_indices == target)
+                    candidate_row = trial_rows[
+                        np.argmin(child_fitness[trial_rows])
+                    ]
+                    if child_fitness[candidate_row] < population_fitness[target]:
+                        population[target] = children[candidate_row]
+                        population_fitness[target] = child_fitness[candidate_row]
+            else:
+                combined_x = np.concatenate((population, children), axis=0)
+                combined_fitness = np.concatenate((population_fitness, child_fitness))
+                population, population_fitness = select_population(
+                    combined_x, combined_fitness, args.population_size, rng
+                )
 
             if stagnant_generations >= args.restart_after:
                 refresh_count = max(1, args.population_size // 2)
@@ -378,13 +504,18 @@ def main():
                     )
                 refreshed_fitness = score_batch(refreshed)
                 scored += len(refreshed)
-                combined_x = np.concatenate((population, refreshed), axis=0)
-                combined_fitness = np.concatenate(
-                    (population_fitness, refreshed_fitness)
-                )
-                population, population_fitness = select_population(
-                    combined_x, combined_fitness, args.population_size, rng
-                )
+                if args.algorithm == "de":
+                    worst = np.argsort(population_fitness)[-refresh_count:]
+                    population[worst] = refreshed
+                    population_fitness[worst] = refreshed_fitness
+                else:
+                    combined_x = np.concatenate((population, refreshed), axis=0)
+                    combined_fitness = np.concatenate(
+                        (population_fitness, refreshed_fitness)
+                    )
+                    population, population_fitness = select_population(
+                        combined_x, combined_fitness, args.population_size, rng
+                    )
                 refreshed_best = int(np.argmin(refreshed_fitness))
                 if refreshed_fitness[refreshed_best] < best_fitness:
                     best_x = refreshed[refreshed_best].copy()
@@ -400,7 +531,8 @@ def main():
                 print(
                     f"progress {scored}/{args.iterations}; "
                     f"best fitness {best_fitness:.12g}; "
-                    f"population best {population_fitness.min():.12g}",
+                    f"population best {population_fitness.min():.12g}; "
+                    f"mutation scale {step_multiplier:.3f}",
                     flush=True,
                 )
 
