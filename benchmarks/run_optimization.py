@@ -1,6 +1,7 @@
 """Search one ESA satellite formation with orbital preconditioning and evolution."""
 
 import argparse
+import json
 import subprocess
 import sys
 import tempfile
@@ -71,11 +72,23 @@ def parse_args():
     parser.add_argument("--population-size", type=int, default=256)
     parser.add_argument(
         "--algorithm",
-        choices=("de", "genetic"),
+        choices=("de", "genetic", "block-anneal"),
         default="de",
-        help="GPU-batched differential evolution or the genetic baseline",
+        help="GPU-batched differential evolution, genetic baseline, or block annealing",
     )
     parser.add_argument("--seed", type=int, default=43)
+    parser.add_argument(
+        "--target-score",
+        type=float,
+        default=None,
+        help="stop once the best ESA fitness reaches this value or lower",
+    )
+    parser.add_argument(
+        "--resume-rng",
+        type=Path,
+        default=None,
+        help="continue the random stream recorded in a search checkpoint",
+    )
     parser.add_argument("--velocity-bound", type=float, default=10.0)
     parser.add_argument(
         "--restart-after",
@@ -105,6 +118,23 @@ def random_candidates(count, lower, upper, n_sat, velocity_bound, rng):
         -1.0, 1.0, size=(count, 3 * n_sat)
     ) * velocity_scales[:, None]
     return candidates
+
+
+def canonicalize_candidates(candidates, n_sat):
+    """Sort interchangeable satellites by their initial x position.
+
+    Satellite labels do not affect the evaluator. Canonical ordering keeps
+    population crossover and differential moves from combining unrelated
+    satellites solely because they happened to share an array index.
+    """
+    values = np.asarray(candidates, dtype=np.float64)
+    one_candidate = values.ndim == 1
+    batch = values[None, :] if one_candidate else values
+    states = batch.reshape(len(batch), 6, n_sat).transpose(0, 2, 1)
+    order = np.argsort(states[:, :, 0], axis=1, kind="stable")
+    states = np.take_along_axis(states, order[:, :, None], axis=1)
+    result = states.transpose(0, 2, 1).reshape(len(batch), 6 * n_sat)
+    return result[0] if one_candidate else result
 
 
 def mutate_candidates(
@@ -285,6 +315,56 @@ def make_de_offspring(
     return trials, targets, immigrant_rows
 
 
+def make_block_proposals(
+    parents,
+    donors,
+    lower,
+    upper,
+    n_sat,
+    mutation_map,
+    rng,
+    temperature,
+):
+    """Perturb a small number of complete satellite states at a time.
+
+    The score is based on discretized grid occupancies, so changing many
+    satellites at once often destroys useful baselines. These proposals make
+    mostly one- or two-satellite moves, while occasional larger moves and
+    donor-state replacements allow the search to escape local plateaus.
+    """
+    count = len(parents)
+    genes = parents.reshape(count, 6, n_sat).transpose(0, 2, 1).copy()
+    donor_genes = donors.reshape(count, 6, n_sat).transpose(0, 2, 1)
+
+    move_sizes = rng.choice(
+        np.asarray([1, 2, 3, 5, 8, max(1, n_sat // 2)]),
+        size=count,
+        p=[0.43, 0.24, 0.14, 0.10, 0.06, 0.03],
+    )
+    changed = np.zeros((count, n_sat), dtype=bool)
+    keys = rng.random((count, n_sat))
+    order = np.argsort(keys, axis=1)
+    rows = np.arange(count)[:, None]
+    changed[rows, order[:, : int(move_sizes.max())]] = (
+        np.arange(int(move_sizes.max()))[None, :] < move_sizes[:, None]
+    )
+
+    steps = np.exp(rng.uniform(np.log(0.1), np.log(12.0), size=count))
+    steps *= np.sqrt(np.clip(temperature / 0.12, 0.08, 1.5))
+    noise = rng.normal(size=(count, n_sat, 6))
+    scaled_noise = np.einsum("bnj,ij->bni", noise, mutation_map)
+    genes += scaled_noise * steps[:, None, None] * changed[..., None]
+
+    # Replace one selected satellite with a donor's whole six-dimensional state.
+    donor_rows = np.flatnonzero(rng.random(count) < 0.12)
+    if donor_rows.size:
+        satellite = rng.integers(0, n_sat, size=donor_rows.size)
+        genes[donor_rows, satellite] = donor_genes[donor_rows, satellite]
+
+    proposals = genes.transpose(0, 2, 1).reshape(count, 6 * n_sat)
+    return np.clip(proposals, lower, upper)
+
+
 def main():
     args = parse_args()
     if min(
@@ -302,6 +382,14 @@ def main():
     case_id = args.case
     spec = get_case(case_id)
     rng = np.random.default_rng(args.seed)
+    if args.resume_rng is not None:
+        with np.load(args.resume_rng, allow_pickle=False) as saved_state:
+            if "seed" in saved_state.files and int(saved_state["seed"]) != args.seed:
+                raise ValueError("RNG checkpoint seed does not match --seed.")
+            rng.bit_generator.state = json.loads(
+                str(saved_state["rng_state"].item())
+            )
+        print(f"Continuing RNG stream from: {args.resume_rng}", flush=True)
     best_path = Path("results/cases") / f"{case_id}_min_best.npz"
     best_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -348,6 +436,7 @@ def main():
         if best_path.exists():
             with np.load(best_path) as saved:
                 best_x = np.asarray(saved["x"], dtype=np.float64)
+            best_x = canonicalize_candidates(best_x, n_sat)
             best_x = np.clip(best_x, search_lower, search_upper)
             best_fitness = float(score_batch(best_x)[0])
             print(f"Seeding from saved best: {best_path}", flush=True)
@@ -366,6 +455,7 @@ def main():
             args.velocity_bound,
             rng,
         )
+        population = canonicalize_candidates(population, n_sat)
 
         warm_count = max(1, args.population_size // 3)
         warm_parents = np.repeat(best_x[None, :], warm_count, axis=0)
@@ -379,6 +469,7 @@ def main():
             temperature=1.0,
         )
         population[0] = best_x
+        population = canonicalize_candidates(population, n_sat)
         population_fitness = score_batch(population)
         best_found_at = 0
         scored = len(population)
@@ -405,7 +496,9 @@ def main():
 
         started = time.perf_counter()
         generation = 0
-        while scored < args.iterations:
+        while scored < args.iterations and (
+            args.target_score is None or best_fitness > args.target_score
+        ):
             generation += 1
             batch_size = min(args.batch_size, args.iterations - scored)
             if args.algorithm == "de":
@@ -421,6 +514,35 @@ def main():
                     best_x,
                 )
                 parent_fitness = population_fitness[target_indices]
+            elif args.algorithm == "block-anneal":
+                # One proposal per walker per generation keeps the Metropolis
+                # accept/reject step unambiguous and avoids overwriting a
+                # walker twice in the same GPU batch.
+                batch_size = min(batch_size, args.population_size)
+                target_indices = rng.choice(
+                    args.population_size, size=batch_size, replace=False
+                )
+                donor_indices = rng.integers(
+                    0, args.population_size, size=batch_size
+                )
+                cycle_length = max(40, args.restart_after * 4)
+                cycle_position = (generation - 1) % cycle_length
+                cycle_fraction = cycle_position / cycle_length
+                current_temperature = args.temperature * (
+                    0.05 + 0.95 * (1.0 - cycle_fraction) ** 2
+                )
+                children = make_block_proposals(
+                    population[target_indices],
+                    population[donor_indices],
+                    search_lower,
+                    search_upper,
+                    n_sat,
+                    mutation_map,
+                    rng,
+                    current_temperature,
+                )
+                parent_fitness = population_fitness[target_indices]
+                immigrant_rows = np.empty(0, dtype=np.int64)
             else:
                 children, parent_fitness, immigrant_rows = make_offspring(
                     population,
@@ -436,6 +558,8 @@ def main():
                     step_multiplier,
                 )
                 target_indices = None
+            if args.algorithm in ("de", "genetic", "block-anneal"):
+                children = canonicalize_candidates(children, n_sat)
             child_fitness = score_batch(children)
             scored += batch_size
 
@@ -474,7 +598,19 @@ def main():
                     if child_fitness[candidate_row] < population_fitness[target]:
                         population[target] = children[candidate_row]
                         population_fitness[target] = child_fitness[candidate_row]
-            else:
+            elif args.algorithm == "block-anneal":
+                deltas = child_fitness - parent_fitness
+                acceptance = np.ones(batch_size, dtype=bool)
+                worse = deltas > 0
+                acceptance[worse] = (
+                    rng.random(int(worse.sum()))
+                    < np.exp(-deltas[worse] / max(current_temperature, 1e-12))
+                )
+                accepted_rows = np.flatnonzero(acceptance)
+                accepted_targets = target_indices[accepted_rows]
+                population[accepted_targets] = children[accepted_rows]
+                population_fitness[accepted_targets] = child_fitness[accepted_rows]
+            elif args.algorithm == "genetic":
                 combined_x = np.concatenate((population, children), axis=0)
                 combined_fitness = np.concatenate((population_fitness, child_fitness))
                 population, population_fitness = select_population(
@@ -491,6 +627,7 @@ def main():
                     args.velocity_bound,
                     rng,
                 )
+                refreshed = canonicalize_candidates(refreshed, n_sat)
                 local_count = refresh_count // 2
                 if local_count:
                     refreshed[:local_count] = mutate_candidates(
@@ -502,9 +639,10 @@ def main():
                         rng,
                         temperature=1.5,
                     )
+                    refreshed = canonicalize_candidates(refreshed, n_sat)
                 refreshed_fitness = score_batch(refreshed)
                 scored += len(refreshed)
-                if args.algorithm == "de":
+                if args.algorithm in ("de", "block-anneal"):
                     worst = np.argsort(population_fitness)[-refresh_count:]
                     population[worst] = refreshed
                     population_fitness[worst] = refreshed_fitness
@@ -532,9 +670,16 @@ def main():
                     f"progress {scored}/{args.iterations}; "
                     f"best fitness {best_fitness:.12g}; "
                     f"population best {population_fitness.min():.12g}; "
-                    f"mutation scale {step_multiplier:.3f}",
+                    + (
+                        f"temperature {current_temperature:.4g}"
+                        if args.algorithm == "block-anneal"
+                        else f"mutation scale {step_multiplier:.3f}"
+                    ),
                     flush=True,
                 )
+
+        if args.target_score is not None and best_fitness <= args.target_score:
+            print(f"Target reached: {best_fitness:.12g} <= {args.target_score}", flush=True)
 
         np.savez_compressed(candidate_path, x=best_x)
         subprocess.run(
