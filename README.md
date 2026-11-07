@@ -1,9 +1,9 @@
 # ESA SPOC-3 – Interferometric Mission Optimization
 
-**Project:** Large Observatory in Halo  
-**Organization:** European Space Agency (ESA)  
-**Status:** Environment configured; reference implementation under validation  
-**Language:** Python  
+**Project:** ESA SpOC-3 Interferometric Mission
+**Organization:** European Space Agency (ESA)
+**Status:** One score-guided random-improvement search handles easy, medium, and hard; GPU checks remain available as optional validation
+**Language:** Python
 **GPU Framework:** PyTorch  
 **Target GPU:** NVIDIA GeForce RTX 5070 Laptop GPU
 
@@ -11,13 +11,13 @@
 
 ## 1. Project Overview
 
-This project focuses on solving the European Space Agency's SPOC-3 Interferometric Mission optimization challenge, specifically the **Large Observatory in Halo** problem.
+This project focuses on solving the European Space Agency's SPOC-3 Interferometric Mission optimization challenge across its **easy, medium, and hard** problems.
 
 The objective is to optimize the initial relative positions and velocities of a formation of satellites orbiting around a mothership following a nominal trajectory in the Circular Restricted Three-Body Problem (CR3BP).
 
 The satellite formation must produce good interferometric measurements at multiple observation points. The quality of these measurements is evaluated using Golomb array patterns and their autocorrelations.
 
-The main goal is to develop an optimization implementation that uses GPU acceleration to evaluate candidate satellite formations efficiently while preserving the mathematical behavior of the original ESA reference implementation.
+The main search scores batches of random formations on the GPU, mutates candidates, and preserves the best score found. It can accept a worse intermediate candidate occasionally to escape plateaus. A CPU child process prepares the reference STMs and independently checks the final result.
 
 **Official challenge:**  
 https://optimise.esa.int/challenge/spoc-3-interferometric-mission/p/large-observatory-in-halo
@@ -31,10 +31,9 @@ The project is being developed in stages:
 1. Understand and validate the original ESA reference implementation.
 2. Reproduce the original fitness calculation.
 3. Develop a GPU-accelerated fitness evaluator using PyTorch.
-4. Implement a population-based optimization algorithm.
-5. Compare CPU and GPU performance.
-6. Validate GPU results against the original ESA implementation.
-7. Optimize performance and improve the final satellite formation.
+4. Search by proposing mutations to the best candidate and keeping improvements.
+5. Check the search against the original ESA CPU evaluator.
+6. Keep optional GPU comparisons for performance experiments.
 
 The mathematical correctness of the original evaluation is prioritized over performance improvements.
 
@@ -42,20 +41,17 @@ The mathematical correctness of the original evaluation is prioritized over perf
 
 ## 3. Problem Configuration
 
-The current reference problem uses the following configuration:
+The three challenge cases use the following configurations:
 
 | Parameter | Value |
 |---|---:|
-| Number of satellites | 40 |
-| Decision variables per satellite | 6 |
-| Total decision variables | 240 |
-| Number of observations | 3 |
-| Grid dimensions | 21 × 21 × 21 |
-| CR3BP gravitational parameter (μ) | 0.01215058560962404 |
-| Scaling factor | 0.0001 |
-| Inflation factor | 1.23 |
-| Halo orbit period | 2.383491010514447 |
-| Total propagation time | 4.766982020... |
+| Case | ESA problem | Satellites | Grid | Orbit | Period |
+|---|---|---:|---:|---|---:|
+| Easy | `tiny-observatory-in-dro` | 5 | 11³ | DRO | 2.6905181697222775 |
+| Medium | `large-observatory-in-dro` | 40 | 21³ | DRO | 2.6905181697222775 |
+| Hard | `large-observatory-in-halo` | 40 | 21³ | HALO | 2.383491010514447 |
+
+All cases use 3 observations, CR3BP gravitational parameter μ = 0.01215058560962404, scaling factor 0.0001, and inflation factor 1.23. Total propagation time is two orbit periods. The easy case has 30 decision variables; medium and hard each have 240.
 
 Each satellite has six optimization variables:
 
@@ -109,15 +105,15 @@ For every observation:
 
 The three fill factors are summed for each observation.
 
-The final fitness function returns:
+The challenge README describes the objective as the negative maximum of the three observation scores:
 
 ```python
-return [-min(fill_factor)]
+return [-max(fill_factor)]
 ```
 
-This means the optimization algorithm minimizes the negative of the weakest observation's combined fill factor.
+The simple search defaults to the published ESA Python evaluator's `min` objective. The challenge README instead specifies `max`; both formulas remain selectable because they conflict. Outputs include the selected objective in their filenames and metadata.
 
-**The optimization objective is therefore to maximize the worst-performing observation.**
+These are local scores, not official leaderboard results. The submission helper expects one problem per JSON file, so the exporter writes `results/submissions/easy_submission.json`, `medium_submission.json`, and `hard_submission.json`. None has been uploaded to ESA.
 
 ---
 
@@ -277,14 +273,14 @@ stms = sol[4][:, 6:].reshape(M, 6, 6)
 
 The installed Heyoka version uses a return structure in which the propagated state data is expected at index 5 rather than index 4.
 
-The proposed compatibility adjustment is:
+The checked-in source currently uses:
 
 ```python
 ref_state = sol[5][:, :6]
 stms = sol[5][:, 6:].reshape(M, 6, 6)
 ```
 
-This adjustment still needs to be applied and tested against the original implementation.
+Reference initialization and a baseline fitness evaluation now run successfully in the `esa` environment.
 
 No changes to the underlying CR3BP equations or fitness mathematics are intended.
 
@@ -294,25 +290,24 @@ No changes to the underlying CR3BP equations or fitness mathematics are intended
 
 ```text
 Interferometric_Mission/
-│
-├── reference/
-│   └── esa_reference.py
-│
-├── .gitignore
-│
-└── README.md
+├── reference/esa_reference.py       # ESA CPU reference
+├── src/evaluation/gpu.py            # Batched PyTorch evaluator
+├── src/evaluation/pygmo_problem.py  # PyGMO wrapper and search bounds
+├── src/evaluation/cases.py          # Easy, medium, and hard reference configurations
+├── benchmarks/                      # Evaluation, comparison, and optimization scripts
+└── results/cases/                   # Per-case, per-objective verified candidates
 ```
 
-The original ESA implementation is kept separate from future GPU code to make comparison and validation easier.
+The ESA reference file is kept unchanged as the comparison baseline. Project-specific fixes and extensions belong in the surrounding evaluator and benchmark code.
 
 ---
 
 ## 11. Current Development Status
 
-### Completed
+### Present in the project
 
 - [x] Selected the ESA SPOC-3 Interferometric Mission challenge.
-- [x] Identified the Large Observatory in Halo problem.
+- [x] Identified and configured all three challenge cases: easy DRO, medium DRO, and hard HALO.
 - [x] Cloned the project repository from GitHub.
 - [x] Installed Miniforge.
 - [x] Created the Conda environment named `esa`.
@@ -325,33 +320,62 @@ The original ESA implementation is kept separate from future GPU code to make co
 - [x] Verified CUDA availability.
 - [x] Confirmed RTX 5070 GPU detection.
 - [x] Obtained and saved the original ESA reference implementation.
-- [x] Identified a Heyoka API compatibility issue.
+- [x] ESA reference reads propagated states from Heyoka's current return slot (`sol[5]`); initialization and fitness evaluation were verified in the `esa` environment.
+- [x] Added a batched PyTorch evaluator and a PyGMO wrapper.
+- [x] Added scripts for CPU/GPU comparison, fitness inspection, and optimization.
+- [x] Added one score-guided random-improvement loop that selects any of the three cases.
+- [x] Made the published Python evaluator's `min` objective the search default; `max` remains available for the challenge README's formula.
+- [x] Added three ESA-format submission JSON files, one bounds-checked candidate per case.
 
-### In progress
+### Still to verify
 
-- [ ] Apply and verify the Heyoka return-index compatibility fix.
-- [ ] Successfully initialize the original ESA UDP.
-- [ ] Evaluate the first baseline solution.
-- [ ] Establish a reproducible CPU fitness benchmark.
+- [x] Run CPU/GPU comparisons on 32 fixed random candidates; all scores matched within floating-point tolerance.
+- [x] Validate CPU/GPU agreement for both objective definitions on all three cases.
+- [x] Recompute saved candidates with the published CPU evaluator and match their stored scores.
+- [x] Benchmark throughput on the current machine: at batch size 1024, one run measured about 26,435 GPU evaluations/second versus 1,146 CPU evaluations/second (23.1×); benchmark repeats and records the seed and batch sizes.
+- [ ] Confirm the live submission service's aggregation if ESA clarifies its conflict with the challenge README.
 
 ### Planned
 
-- [ ] Implement the GPU fitness evaluator in PyTorch.
-- [ ] Validate GPU fitness against CPU fitness.
-- [ ] Implement GPU-accelerated Differential Evolution.
-- [ ] Experiment with population sizes and batch sizes.
-- [ ] Benchmark CPU versus GPU performance.
+- [x] Update the optimization runner to save each run and retain the best known candidate.
+- [ ] Compare wider velocity bounds and alternative population/batch sizes.
 - [ ] Optimize the best-performing satellite formation.
 - [ ] Visualize the resulting satellite formation and interferometric reconstruction.
 - [ ] Document final results and performance improvements.
 
 ---
 
-## 12. Immediate Next Step
+## 12. Run the Case Suite
 
-The next task is to get the original ESA reference implementation running successfully.
+Activate the `esa` environment, then try 10,000 candidates per case in batches of 512 and build one local submission JSON per case:
 
-The first test will evaluate a chromosome containing 240 zero-valued decision variables:
+```bash
+python -m benchmarks.run_case_suite --iterations 10000 --batch-size 512 --seed 43
+```
+
+Add `--resume` to skip cases with saved candidates, then verify and rebuild all three submission files:
+
+```bash
+python -m benchmarks.run_case_suite --resume
+```
+
+Each case can also be run individually. For example:
+
+```bash
+python -m benchmarks.run_optimization --case hard --iterations 10000 --batch-size 512 --seed 43
+```
+
+The search uses the published Python evaluator's `min` objective. The challenge README documents `max`, so those two sources disagree. ESA permits positions in `[-1, 1]` and velocities in `[-10, 10]`; the search initializes and mutates velocities within `[-0.5, 0.5]` by default to keep trial formations near the mothership. Set `--velocity-bound 10` to explore the full velocity range. The search cools its acceptance of worse intermediate candidates; use `--temperature` and `--restart-after` to adjust exploration.
+
+After all three selected-objective candidates exist, build or refresh the files in `results/submissions/` with:
+
+```bash
+python -m benchmarks.build_submission
+```
+
+Each file contains one ESA problem entry and can be uploaded separately through ESA's site. The project only creates these local files; it does not submit them. Current reference-matched files end in `_min_submission.json`; `max` files follow the challenge README's alternate formula.
+
+The CPU reference baseline for a chromosome containing 240 zero-valued decision variables is:
 
 ```python
 from reference.esa_reference import udp
@@ -366,7 +390,9 @@ Expected decision variable count:
 240
 ```
 
-Once this works, the resulting CPU fitness value will serve as the baseline for validating the GPU implementation.
+The observed CPU result is `-0.001784651992861392`. The optimizer prints the three observation scores for each run and stores them with its result.
+
+The easy case has 30 decision variables; medium and hard have 240 each.
 
 ---
 
@@ -378,4 +404,4 @@ The project follows three main principles:
 2. **Preserve the mathematics:** Performance improvements must not alter the underlying orbital dynamics or evaluation criteria.
 3. **Measure actual performance:** GPU acceleration must be benchmarked against the CPU implementation rather than assumed to be faster.
 
-The ultimate goal is to develop a reliable, GPU-accelerated optimization solution for the ESA interferometric satellite formation problem.
+The goal is to produce reproducible ESA candidate vectors with a clear score-guided search and reference-based verification.
