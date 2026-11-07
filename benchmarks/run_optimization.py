@@ -89,6 +89,18 @@ def parse_args():
         default=None,
         help="continue the random stream recorded in a search checkpoint",
     )
+    parser.add_argument(
+        "--save-rng-checkpoint",
+        type=Path,
+        default=None,
+        help="save the progressed random stream when the run ends",
+    )
+    parser.add_argument(
+        "--rng-jump",
+        type=int,
+        default=0,
+        help="advance the seeded PCG64 stream before the next search segment",
+    )
     parser.add_argument("--velocity-bound", type=float, default=10.0)
     parser.add_argument(
         "--restart-after",
@@ -378,6 +390,8 @@ def main():
         )
     if args.velocity_bound <= 0 or args.temperature <= 0:
         raise ValueError("velocity-bound and temperature must be positive.")
+    if args.rng_jump < 0:
+        raise ValueError("rng-jump must be non-negative.")
 
     case_id = args.case
     spec = get_case(case_id)
@@ -390,6 +404,9 @@ def main():
                 str(saved_state["rng_state"].item())
             )
         print(f"Continuing RNG stream from: {args.resume_rng}", flush=True)
+    if args.rng_jump:
+        rng.bit_generator.advance(args.rng_jump)
+        print(f"Advanced RNG stream by {args.rng_jump:,} draws", flush=True)
     best_path = Path("results/cases") / f"{case_id}_min_best.npz"
     best_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -728,6 +745,20 @@ def main():
     print("Elapsed seconds:", round(time.perf_counter() - started, 2))
     print("Saved best:", best_path)
     print("Final fitness:", cpu_fitness)
+    rng_checkpoint_path = args.save_rng_checkpoint or (
+        Path("results/cases") / f"{case_id}_optimizer_rng.npz"
+    )
+    rng_checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
+    np.savez_compressed(
+        rng_checkpoint_path,
+        case_id=case_id,
+        seed=args.seed,
+        rng_state=json.dumps(rng.bit_generator.state),
+        best_x=best_x,
+        best_fitness=cpu_fitness,
+        evaluations=scored,
+    )
+    print("Saved RNG checkpoint:", rng_checkpoint_path)
 
 
 if __name__ == "__main__":

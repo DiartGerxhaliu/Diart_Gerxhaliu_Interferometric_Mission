@@ -1,407 +1,96 @@
-# ESA SPOC-3 – Interferometric Mission Optimization
+# ESA SpOC-3 Interferometric Mission Optimizer
 
-**Project:** ESA SpOC-3 Interferometric Mission
-**Organization:** European Space Agency (ESA)
-**Status:** One score-guided random-improvement search handles easy, medium, and hard; GPU checks remain available as optional validation
-**Language:** Python
-**GPU Framework:** PyTorch  
-**Target GPU:** NVIDIA GeForce RTX 5070 Laptop GPU
+This repository searches satellite initial conditions for ESA's Interferometric Mission challenge. The current active work is the **hard, 40-satellite HALO case**. The optimizer can also be configured for easy and medium, but treat their saved candidates as separate case-specific results.
 
----
+## Objective and evaluators
 
-## 1. Project Overview
+Each problem has its own evaluator/configuration:
 
-This project focuses on solving the European Space Agency's SPOC-3 Interferometric Mission optimization challenge across its **easy, medium, and hard** problems.
+| Case | ESA problem ID | Orbit | Satellites | Grid |
+|---|---|---|---:|---:|
+| Easy | `tiny-observatory-in-dro` | DRO | 5 | 11 × 11 × 11 |
+| Medium | `large-observatory-in-dro` | DRO | 40 | 21 × 21 × 21 |
+| Hard | `large-observatory-in-halo` | HALO | 40 | 21 × 21 × 21 |
 
-The objective is to optimize the initial relative positions and velocities of a formation of satellites orbiting around a mothership following a nominal trajectory in the Circular Restricted Three-Body Problem (CR3BP).
+For each of three observation times, the evaluator propagates each satellite's six-component relative state, bins in-range positions onto a 3-D grid, projects occupancy onto XY, XZ and YZ, and counts nonzero autocorrelation cells. It sums those three plane fill factors for each observation. The shipped evaluator returns the **negative of the weakest observation's sum**, `-min(fill_factor)`, so lower (more negative) fitness is better. The challenge README describes `-max`; this conflicts with the executable evaluator. The local CPU reference is the scoring authority used by the search and JSON builder.
 
-The satellite formation must produce good interferometric measurements at multiple observation points. The quality of these measurements is evaluated using Golomb array patterns and their autocorrelations.
+The chromosome has six blocks in this order:
 
-The main search scores batches of random formations on the GPU, mutates candidates, and preserves the best score found. It can accept a worse intermediate candidate occasionally to escape plateaus. A CPU child process prepares the reference STMs and independently checks the final result.
+```text
+[dx_1...dx_N, dy_1...dy_N, dz_1...dz_N,
+ dvx_1...dvx_N, dvy_1...dvy_N, dvz_1...dvz_N]
+```
 
-**Official challenge:**  
-https://optimise.esa.int/challenge/spoc-3-interferometric-mission/p/large-observatory-in-halo
+Bounds are positions `[-1, 1]` and velocities `[-10, 10]`. Later observations apply the evaluator's inflation factor of 1.23. The hard case uses HALO initial conditions; easy and medium use DRO conditions.
 
----
+## How the search works
 
-## 2. Development Objectives
+`benchmarks/run_optimization.py` scores candidate batches on the NVIDIA GPU, then checks the best candidate with the local CPU reference before saving it. A GPU fitness value by itself is provisional until that CPU check passes.
 
-The project is being developed in stages:
+The main search is differential evolution (DE): it combines differences between population members to propose new candidates, crosses over whole six-value satellite states, and adapts its mutation scale when progress stalls. It periodically refreshes weaker population members. Before crossover, the optimizer sorts satellites by initial X position. Satellite labels do not affect the score, so this gives equivalent permutations a consistent order and makes the same-index genes more likely to represent similar satellites. It changes representation only; the candidate is still evaluated by the ESA objective.
 
-1. Understand and validate the original ESA reference implementation.
-2. Reproduce the original fitness calculation.
-3. Develop a GPU-accelerated fitness evaluator using PyTorch.
-4. Search by proposing mutations to the best candidate and keeping improvements.
-5. Check the search against the original ESA CPU evaluator.
-6. Keep optional GPU comparisons for performance experiments.
+The genetic variant uses rank-based parent selection, whole-satellite crossover, and mutation in coordinates preconditioned by the linearized state-transition sensitivity. Block annealing, independent random search, and small-group coordinate search are also available as experiments; earlier runs of those alternatives did not improve the hard incumbent.
 
-The mathematical correctness of the original evaluation is prioritized over performance improvements.
+Fitness is discrete and plateau-prone: many small continuous changes leave all grid occupancies unchanged. Mutation therefore spans multiple scales, and random immigrants/restarts help explore formations outside the current local basin. No score is extrapolated: each reported candidate is an actual vector passed to the evaluator.
 
----
+## Current hard-case status
 
-## 3. Problem Configuration
+Latest CPU-verified hard candidate before the currently running genetic segment:
 
-The three challenge cases use the following configurations:
-
-| Parameter | Value |
+| Item | Value |
 |---|---:|
-| Case | ESA problem | Satellites | Grid | Orbit | Period |
-|---|---|---:|---:|---|---:|
-| Easy | `tiny-observatory-in-dro` | 5 | 11³ | DRO | 2.6905181697222775 |
-| Medium | `large-observatory-in-dro` | 40 | 21³ | DRO | 2.6905181697222775 |
-| Hard | `large-observatory-in-halo` | 40 | 21³ | HALO | 2.383491010514447 |
+| Fitness | `-1.4211778703152884` |
+| Observation fill-factor sums | `[1.422368, 1.421178, 1.421178]` |
+| Requested hard target | `<= -1.5` |
+| Remaining gap | about `0.078822` |
+| CPU/GPU verification difference | `2.22e-16` |
 
-All cases use 3 observations, CR3BP gravitational parameter μ = 0.01215058560962404, scaling factor 0.0001, and inflation factor 1.23. Total propagation time is two orbit periods. The easy case has 30 decision variables; medium and hard each have 240.
+The target is **not met yet**. The latest CPU-verified hard score remains `-1.4211778703152884` (verification difference `2.22e-16`). A 10-million-evaluation DE segment with population 4096 was stopped at 4,061,184 evaluations, without improving the saved candidate. No search is running now. The candidate and RNG checkpoint from the last completed segment remain intact; the in-progress RNG state from the stopped segment was not saved.
 
-Each satellite has six optimization variables:
+The best candidate is stored internally at `results/cases/hard_min_best.npz`; the stream state is stored at `results/cases/hard_optimizer_rng.npz`. The population is not checkpointed, so resuming after a completed segment retains the best vector and RNG sequence but initializes a new population.
 
-- Initial relative position: X, Y, Z
-- Initial relative velocity: VX, VY, VZ
+## Run or resume hard search (PowerShell)
 
-The optimization chromosome is organized into six blocks of 40 values:
+From the project directory, run:
+
+```powershell
+& 'C:\Users\User\miniforge3\Scripts\conda.exe' run -p 'C:\Users\User\miniforge3\envs\esa' --no-capture-output python -m benchmarks.run_optimization --case hard --algorithm de --iterations 10000000 --batch-size 2048 --population-size 4096 --seed 239817 --velocity-bound 10 --restart-after 300 --temperature 0.35 --target-score -1.5 --resume-rng results\cases\hard_optimizer_rng.npz --rng-jump 25000000000
+```
+
+To try the genetic variant, replace `--algorithm de` with `--algorithm genetic`. Do not launch concurrent GPU searches on this machine; they contend for the same GPU and do not share a population. The seed is checked against the checkpoint. Keeping the seed and `--resume-rng` continues from the *last saved* random state; omitting `--resume-rng` restarts the stream from the seed. If a process is interrupted, its in-memory RNG state is lost, so restarting from the last checkpoint replays random draws from that unfinished segment. Use `--rng-jump` to deliberately move farther along the PCG64 stream when avoiding that replay matters; this skips draws rather than restoring the exact interrupted state.
+
+At completion, check for `CPU verification difference`, `Observation scores`, `Final fitness`, and `Saved RNG checkpoint` in the output. Only then treat a new score as verified.
+
+## Build ESA JSON files
+
+The `.npz` files are optimizer checkpoints, not ESA submissions. After a run completes successfully, build the per-case JSON files with:
+
+```powershell
+& 'C:\Users\User\miniforge3\Scripts\conda.exe' run -p 'C:\Users\User\miniforge3\envs\esa' --no-capture-output python -m benchmarks.build_submission
+```
+
+This checks the saved easy, medium, and hard vectors against their matching local CPU evaluators and writes:
 
 ```text
-[dx1 ... dx40,
- dy1 ... dy40,
- dz1 ... dz40,
- dvx1 ... dvx40,
- dvy1 ... dvy40,
- dvz1 ... dvz40]
+results/submissions/easy_min_submission.json
+results/submissions/medium_min_submission.json
+results/submissions/hard_min_submission.json
 ```
 
-The decision variable bounds are:
+Each JSON contains an ESA `decisionVector`, challenge ID, and matching problem ID. Building these files does not upload them to ESA. The medium search was interrupted before its best could be saved, so its on-disk candidate remains the previous CPU-verified one.
 
-| Variables | Lower bound | Upper bound |
-|---|---:|---:|
-| Relative positions | -1 | 1 |
-| Relative velocities | -10 | 10 |
+## Important files
 
-All 240 decision variables are continuous.
-
----
-
-## 4. Fitness Function
-
-The original ESA implementation evaluates each candidate formation at three observation points:
-
-- First observation: t = 0
-- Second observation: t = 1 orbital period
-- Third observation: t = 2 orbital periods
-
-The satellite positions are propagated using precomputed State Transition Matrices (STMs).
-
-For every observation:
-
-1. Propagate the relative satellite positions.
-2. Apply the formation inflation factor for observations after the initial measurement.
-3. Remove satellites outside the allowed spatial boundaries.
-4. Map the remaining positions onto a three-dimensional grid.
-5. Generate three two-dimensional projections:
-   - XY
-   - XZ
-   - YZ
-6. Calculate the autocorrelation of each projection.
-7. Calculate the fill factor of each autocorrelation.
-
-The three fill factors are summed for each observation.
-
-The challenge README describes the objective as the negative maximum of the three observation scores:
-
-```python
-return [-max(fill_factor)]
-```
-
-The simple search defaults to the published ESA Python evaluator's `min` objective. The challenge README instead specifies `max`; both formulas remain selectable because they conflict. Outputs include the selected objective in their filenames and metadata.
-
-These are local scores, not official leaderboard results. The submission helper expects one problem per JSON file, so the exporter writes `results/submissions/easy_submission.json`, `medium_submission.json`, and `hard_submission.json`. None has been uploaded to ESA.
-
----
-
-## 5. Technology Stack
-
-The project uses the following libraries:
-
-| Library | Purpose |
+| Path | Purpose |
 |---|---|
-| Heyoka | CR3BP dynamics and Taylor integration |
-| NumPy | Numerical operations and arrays |
-| SciPy | Signal processing and autocorrelation |
-| Matplotlib | Visualization and plotting |
-| Pillow | Image processing |
-| PyTorch | GPU-accelerated calculations |
-| PyGMO | Available for potential optimization experiments |
-
-The original ESA implementation does not require PyTorch or PyGMO to calculate its reference fitness. PyTorch is installed for the planned GPU implementation.
-
----
-
-## 6. Hardware
-
-Development and testing are performed on the following machine:
-
-| Component | Specification |
-|---|---|
-| Laptop | MSI Crosshair 16 X |
-| CPU | Intel Core Ultra 7 255HX |
-| GPU | NVIDIA GeForce RTX 5070 Laptop GPU |
-| GPU Memory | 8 GB |
-| Operating System | Windows |
-| GPU Acceleration | CUDA |
-
-The NVIDIA GPU is detected successfully by PyTorch.
-
----
-
-## 7. Development Environment
-
-The project uses Miniforge and Conda for Python environment management.
-
-**Environment name:**
-
-```text
-esa
-```
-
-**Python version:**
-
-```text
-Python 3.12
-```
-
-**Environment location:**
-
-```text
-C:\Users\User\miniforge3\envs\esa
-```
-
-The environment is activated using:
-
-```bash
-conda activate esa
-```
-
-The project directory is:
-
-```text
-C:\Users\User\Desktop\Fakultet\Diart_Gerxhaliu_Interferometric_Mission
-```
-
-### Installed dependencies
-
-The following packages have been installed and verified:
-
-| Package | Installed version | Source |
-|---|---|---|
-| heyoka | 7.13.0 | conda-forge |
-| heyoka.py | 7.13.2 | conda-forge |
-| numpy | 2.5.4 | conda-forge |
-| scipy | 1.18.1 | conda-forge |
-| matplotlib | 3.11.2 | conda-forge |
-| pillow | 13.0.0 | conda-forge |
-| pygmo | 2.20.0 | conda-forge |
-| torch | 2.15.0+cu132 | pip |
-| torchvision | 0.29.2+cu132 | pip |
-
-The Python imports have been tested successfully.
-
-### PyTorch CUDA verification
-
-The following checks were executed:
-
-```python
-import torch
-
-print(torch.__version__)
-print(torch.cuda.is_available())
-print(torch.cuda.get_device_name(0))
-```
-
-Verified output:
-
-```text
-PyTorch: 2.15.0+cu132
-CUDA: True
-GPU: NVIDIA GeForce RTX 5070 Laptop GPU
-```
-
-This confirms that the Python environment can access the NVIDIA GPU through CUDA.
-
----
-
-## 8. Original ESA Reference Implementation
-
-The original ESA source code has been saved locally at:
-
-```text
-reference/esa_reference.py
-```
-
-The implementation contains:
-
-- `propagate_formation()`
-- `stm_factory()`
-- `orbital_golomb_array`
-- `fitness_impl()`
-- `plot_simulated_reconstruction()`
-
-The reference implementation uses Heyoka to construct the CR3BP equations of motion and their variational equations.
-
-It calculates the State Transition Matrices once during initialization and reuses them when evaluating different satellite formations.
-
-This is important because it avoids repeatedly integrating the entire orbital system for every candidate solution.
-
-The original implementation is being preserved as the CPU reference against which the GPU implementation will be tested.
-
----
-
-## 9. Troubleshooting and Compatibility
-
-During initial testing, the original ESA implementation encountered an error:
-
-```text
-TypeError: 'NoneType' object is not subscriptable
-```
-
-The error occurred in `stm_factory()`:
-
-```python
-sol = ta.propagate_grid(t_grid)
-
-ref_state = sol[4][:, :6]
-stms = sol[4][:, 6:].reshape(M, 6, 6)
-```
-
-The installed Heyoka version uses a return structure in which the propagated state data is expected at index 5 rather than index 4.
-
-The checked-in source currently uses:
-
-```python
-ref_state = sol[5][:, :6]
-stms = sol[5][:, 6:].reshape(M, 6, 6)
-```
-
-Reference initialization and a baseline fitness evaluation now run successfully in the `esa` environment.
-
-No changes to the underlying CR3BP equations or fitness mathematics are intended.
-
----
-
-## 10. Current Project Structure
-
-```text
-Interferometric_Mission/
-├── reference/esa_reference.py       # ESA CPU reference
-├── src/evaluation/gpu.py            # Batched PyTorch evaluator
-├── src/evaluation/pygmo_problem.py  # PyGMO wrapper and search bounds
-├── src/evaluation/cases.py          # Easy, medium, and hard reference configurations
-├── benchmarks/                      # Evaluation, comparison, and optimization scripts
-└── results/cases/                   # Per-case, per-objective verified candidates
-```
-
-The ESA reference file is kept unchanged as the comparison baseline. Project-specific fixes and extensions belong in the surrounding evaluator and benchmark code.
-
----
-
-## 11. Current Development Status
-
-### Present in the project
-
-- [x] Selected the ESA SPOC-3 Interferometric Mission challenge.
-- [x] Identified and configured all three challenge cases: easy DRO, medium DRO, and hard HALO.
-- [x] Cloned the project repository from GitHub.
-- [x] Installed Miniforge.
-- [x] Created the Conda environment named `esa`.
-- [x] Installed Python 3.12.
-- [x] Installed Heyoka and its Python package.
-- [x] Installed NumPy, SciPy, Matplotlib and Pillow.
-- [x] Installed PyTorch with CUDA support.
-- [x] Installed PyGMO.
-- [x] Verified all required Python imports.
-- [x] Verified CUDA availability.
-- [x] Confirmed RTX 5070 GPU detection.
-- [x] Obtained and saved the original ESA reference implementation.
-- [x] ESA reference reads propagated states from Heyoka's current return slot (`sol[5]`); initialization and fitness evaluation were verified in the `esa` environment.
-- [x] Added a batched PyTorch evaluator and a PyGMO wrapper.
-- [x] Added scripts for CPU/GPU comparison, fitness inspection, and optimization.
-- [x] Added one score-guided random-improvement loop that selects any of the three cases.
-- [x] Made the published Python evaluator's `min` objective the search default; `max` remains available for the challenge README's formula.
-- [x] Added three ESA-format submission JSON files, one bounds-checked candidate per case.
-
-### Still to verify
-
-- [x] Run CPU/GPU comparisons on 32 fixed random candidates; all scores matched within floating-point tolerance.
-- [x] Validate CPU/GPU agreement for both objective definitions on all three cases.
-- [x] Recompute saved candidates with the published CPU evaluator and match their stored scores.
-- [x] Benchmark throughput on the current machine: at batch size 1024, one run measured about 26,435 GPU evaluations/second versus 1,146 CPU evaluations/second (23.1×); benchmark repeats and records the seed and batch sizes.
-- [ ] Confirm the live submission service's aggregation if ESA clarifies its conflict with the challenge README.
-
-### Planned
-
-- [x] Update the optimization runner to save each run and retain the best known candidate.
-- [ ] Compare wider velocity bounds and alternative population/batch sizes.
-- [ ] Optimize the best-performing satellite formation.
-- [ ] Visualize the resulting satellite formation and interferometric reconstruction.
-- [ ] Document final results and performance improvements.
-
----
-
-## 12. Run the Case Suite
-
-Activate the `esa` environment, then try 10,000 candidates per case in batches of 512 and build one local submission JSON per case:
-
-```bash
-python -m benchmarks.run_case_suite --iterations 10000 --batch-size 512 --seed 43
-```
-
-Add `--resume` to skip cases with saved candidates, then verify and rebuild all three submission files:
-
-```bash
-python -m benchmarks.run_case_suite --resume
-```
-
-Each case can also be run individually. For example:
-
-```bash
-python -m benchmarks.run_optimization --case hard --iterations 10000 --batch-size 512 --seed 43
-```
-
-The search uses the published Python evaluator's `min` objective. The challenge README documents `max`, so those two sources disagree. ESA permits positions in `[-1, 1]` and velocities in `[-10, 10]`; the search initializes and mutates velocities within `[-0.5, 0.5]` by default to keep trial formations near the mothership. Set `--velocity-bound 10` to explore the full velocity range. The search cools its acceptance of worse intermediate candidates; use `--temperature` and `--restart-after` to adjust exploration.
-
-After all three selected-objective candidates exist, build or refresh the files in `results/submissions/` with:
-
-```bash
-python -m benchmarks.build_submission
-```
-
-Each file contains one ESA problem entry and can be uploaded separately through ESA's site. The project only creates these local files; it does not submit them. Current reference-matched files end in `_min_submission.json`; `max` files follow the challenge README's alternate formula.
-
-The CPU reference baseline for a chromosome containing 240 zero-valued decision variables is:
-
-```python
-from reference.esa_reference import udp
-
-print("Decision variables:", len(udp.get_bounds()[0]))
-print("Baseline fitness:", udp.fitness([0.0] * 240))
-```
-
-Expected decision variable count:
-
-```text
-240
-```
-
-The observed CPU result is `-0.001784651992861392`. The optimizer prints the three observation scores for each run and stores them with its result.
-
-The easy case has 30 decision variables; medium and hard have 240 each.
-
----
-
-## 13. Development Philosophy
-
-The project follows three main principles:
-
-1. **Correctness before optimization:** GPU calculations must reproduce the original ESA fitness function.
-2. **Preserve the mathematics:** Performance improvements must not alter the underlying orbital dynamics or evaluation criteria.
-3. **Measure actual performance:** GPU acceleration must be benchmarked against the CPU implementation rather than assumed to be faster.
-
-The goal is to produce reproducible ESA candidate vectors with a clear score-guided search and reference-based verification.
+| `reference/esa_reference.py` | Hard HALO CPU reference (`udp`); protected, do not edit |
+| `src/evaluation/cases.py` | Case definitions and matching DRO/HALO reference construction |
+| `src/evaluation/gpu.py` | Batched PyTorch GPU evaluator |
+| `src/evaluation/objectives.py` | CPU observation-score helpers |
+| `benchmarks/run_optimization.py` | GPU DE, genetic, and block-anneal search |
+| `benchmarks/run_random_search.py` | Checkpointed independent random search |
+| `benchmarks/run_coordinate_search.py` | Checkpointed small-group replacement search |
+| `benchmarks/build_submission.py` | CPU verification and JSON exporter |
+| `OPTIMIZER_HANDOFF.md` | Search history, rationale, checkpoints, and continuation notes |
+
+The Python environment is Miniforge at `C:\Users\User\miniforge3\envs\esa` (environment name `esa`). The tested GPU is an NVIDIA GeForce RTX 5070 Laptop GPU. The optimizer also requires the ESA CPU reference dependencies, including Heyoka and PyGMO.
