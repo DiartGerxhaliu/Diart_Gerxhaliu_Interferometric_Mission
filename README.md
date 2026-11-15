@@ -1,6 +1,6 @@
 # ESA SpOC-3 Interferometric Mission Optimizer
 
-This repository searches satellite initial conditions for ESA's Interferometric Mission challenge. The current active work is the **hard, 40-satellite HALO case**. The optimizer can also be configured for easy and medium, but treat their saved candidates as separate case-specific results.
+This repository searches satellite initial conditions for ESA's Interferometric Mission challenge. Easy, medium, and hard candidates are optimized and saved independently.
 
 ## Objective and evaluators
 
@@ -29,32 +29,42 @@ Bounds are positions `[-1, 1]` and velocities `[-10, 10]`. Later observations ap
 
 The main search is differential evolution (DE): it combines differences between population members to propose new candidates, crosses over whole six-value satellite states, and adapts its mutation scale when progress stalls. It periodically refreshes weaker population members. Before crossover, the optimizer sorts satellites by initial X position. Satellite labels do not affect the score, so this gives equivalent permutations a consistent order and makes the same-index genes more likely to represent similar satellites. It changes representation only; the candidate is still evaluated by the ESA objective.
 
-The genetic variant uses rank-based parent selection, whole-satellite crossover, and mutation in coordinates preconditioned by the linearized state-transition sensitivity. Block annealing, independent random search, and small-group coordinate search are also available as experiments; earlier runs of those alternatives did not improve the hard incumbent.
+The genetic variant uses rank-based parent selection, whole-satellite crossover, and mutation in coordinates preconditioned by the linearized state-transition sensitivity. The coordinate search uses the evaluator's discrete grid structure: it directly proposes minimum-norm initial-state changes that cross projected cell boundaries, then combines satellite moves when single-satellite moves stall. Block annealing and independent random search remain available as alternatives.
 
 Fitness is discrete and plateau-prone: many small continuous changes leave all grid occupancies unchanged. Mutation therefore spans multiple scales, and random immigrants/restarts help explore formations outside the current local basin. No score is extrapolated: each reported candidate is an actual vector passed to the evaluator.
 
 ## Current hard-case status
 
-Latest CPU-verified hard candidate before the currently running genetic segment:
+Latest CPU-verified hard candidate:
 
 | Item | Value |
 |---|---:|
-| Fitness | `-1.4211778703152884` |
-| Observation fill-factor sums | `[1.422368, 1.421178, 1.421178]` |
+| Fitness | `-1.4223676383105293` |
+| Observation fill-factor sums | `[1.424747, 1.422368, 1.422368]` |
 | Requested hard target | `<= -1.5` |
-| Remaining gap | about `0.078822` |
+| Remaining gap | about `0.077632` |
 | CPU/GPU verification difference | `2.22e-16` |
 
-The target is **not met yet**. The latest CPU-verified hard score remains `-1.4211778703152884` (verification difference `2.22e-16`). A 10-million-evaluation DE segment with population 4096 was stopped at 4,061,184 evaluations, without improving the saved candidate. No search is running now. The candidate and RNG checkpoint from the last completed segment remain intact; the in-progress RNG state from the stopped segment was not saved.
+The target is **not met yet**. A completed 10-million-evaluation DE segment (population 4096) improved the hard score from `-1.4211778703152884` to `-1.4223676383105293`. CPU verification passed with a `2.22e-16` difference. No search is running now.
 
 The best candidate is stored internally at `results/cases/hard_min_best.npz`; the stream state is stored at `results/cases/hard_optimizer_rng.npz`. The population is not checkpointed, so resuming after a completed segment retains the best vector and RNG sequence but initializes a new population.
+
+## Current medium-case status
+
+The latest CPU-verified large-observatory-in-DRO candidate scores `-1.7031528851873885` (the requested target is `-1.75`). Multiscale boundary-guided search reached this score after 74,540 evaluations; a subsequent 73,419-evaluation continuation stopped at its plateau without improvement. The current vector is in `results/cases/medium_min_best.npz`, with its resumable local-search state in `results/cases/medium_boundary_checkpoint.npz`.
+
+To continue the medium search, run:
+
+```powershell
+& 'C:\Users\User\miniforge3\envs\esa_official_311\python.exe' -u -m benchmarks.run_coordinate_search --case medium --evaluations 1000000 --batch-size 2048 --seed 777 --target-score -1.75
+```
 
 ## Run or resume hard search (PowerShell)
 
 From the project directory, run:
 
 ```powershell
-& 'C:\Users\User\miniforge3\Scripts\conda.exe' run -p 'C:\Users\User\miniforge3\envs\esa' --no-capture-output python -m benchmarks.run_optimization --case hard --algorithm de --iterations 10000000 --batch-size 2048 --population-size 4096 --seed 239817 --velocity-bound 10 --restart-after 300 --temperature 0.35 --target-score -1.5 --resume-rng results\cases\hard_optimizer_rng.npz --rng-jump 25000000000
+& 'C:\Users\User\miniforge3\envs\esa_official_311\python.exe' -u -m benchmarks.run_optimization --case hard --algorithm de --iterations 10000000 --batch-size 2048 --population-size 4096 --seed 239817 --velocity-bound 10 --restart-after 300 --temperature 0.35 --target-score -1.5 --resume-rng results\cases\hard_optimizer_rng.npz
 ```
 
 To try the genetic variant, replace `--algorithm de` with `--algorithm genetic`. Do not launch concurrent GPU searches on this machine; they contend for the same GPU and do not share a population. The seed is checked against the checkpoint. Keeping the seed and `--resume-rng` continues from the *last saved* random state; omitting `--resume-rng` restarts the stream from the seed. If a process is interrupted, its in-memory RNG state is lost, so restarting from the last checkpoint replays random draws from that unfinished segment. Use `--rng-jump` to deliberately move farther along the PCG64 stream when avoiding that replay matters; this skips draws rather than restoring the exact interrupted state.
@@ -77,7 +87,7 @@ results/submissions/medium_min_submission.json
 results/submissions/hard_min_submission.json
 ```
 
-Each JSON contains an ESA `decisionVector`, challenge ID, and matching problem ID. Building these files does not upload them to ESA. The medium search was interrupted before its best could be saved, so its on-disk candidate remains the previous CPU-verified one.
+Each JSON contains an ESA `decisionVector`, challenge ID, and matching problem ID. Building these files does not upload them to ESA.
 
 ## Important files
 
@@ -89,8 +99,8 @@ Each JSON contains an ESA `decisionVector`, challenge ID, and matching problem I
 | `src/evaluation/objectives.py` | CPU observation-score helpers |
 | `benchmarks/run_optimization.py` | GPU DE, genetic, and block-anneal search |
 | `benchmarks/run_random_search.py` | Checkpointed independent random search |
-| `benchmarks/run_coordinate_search.py` | Checkpointed small-group replacement search |
+| `benchmarks/run_coordinate_search.py` | Checkpointed grid-boundary-guided coordinate search |
 | `benchmarks/build_submission.py` | CPU verification and JSON exporter |
 | `OPTIMIZER_HANDOFF.md` | Search history, rationale, checkpoints, and continuation notes |
 
-The Python environment is Miniforge at `C:\Users\User\miniforge3\envs\esa` (environment name `esa`). The tested GPU is an NVIDIA GeForce RTX 5070 Laptop GPU. The optimizer also requires the ESA CPU reference dependencies, including Heyoka and PyGMO.
+ESA's Dependencies page requires `heyoka==3.2.0`; newer releases changed the `propagate_grid` return tuple used by the evaluator files. The CPU evaluator also requires PyGMO, NumPy, SciPy, Pillow, and Matplotlib. GPU search additionally requires CUDA-enabled PyTorch. The tested GPU is an NVIDIA GeForce RTX 5070 Laptop GPU.

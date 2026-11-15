@@ -1,4 +1,4 @@
-"""Checkpointed GPU search that replaces or perturbs small satellite groups."""
+"""Checkpointed GPU search guided by propagated grid-cell boundaries."""
 
 import argparse
 import json
@@ -10,49 +10,147 @@ from types import SimpleNamespace
 
 import numpy as np
 
-from benchmarks.run_optimization import EXPORT_REFERENCE, VERIFY_REFERENCE
+from benchmarks.run_optimization import VERIFY_REFERENCE
 from src.evaluation.cases import CASE_ORDER, get_case
 
+CELL_STEPS = (1, 2, 4)
+CHECKPOINT_VERSION = 3
 
-def propose_from_incumbent(
-    incumbent, count, n_sat, lower, upper, mutation_map, move_size, rng
-):
-    """Create exact-score candidates by changing a few whole satellite states."""
-    genes = np.repeat(
-        incumbent.reshape(6, n_sat).T[None, :, :], count, axis=0
-    ).copy()
-    move_sizes = rng.choice(
-        np.asarray([move_size, min(n_sat, move_size + 1), min(n_sat, move_size * 2)]),
-        size=count,
-        p=[0.65, 0.25, 0.10],
-    )
-    keys = rng.random((count, n_sat))
-    order = np.argsort(keys, axis=1)
-    rows = np.arange(count)[:, None]
-    max_moves = int(move_sizes.max())
-    chosen = order[:, :max_moves]
-    active = np.arange(max_moves)[None, :] < move_sizes[:, None]
-    selected_rows = np.broadcast_to(rows, chosen.shape)[active]
-    selected_sats = chosen[active]
 
-    random_replace = rng.random(len(selected_rows)) < 0.30
-    random_values = rng.uniform(-1.0, 1.0, size=(len(selected_rows), 6))
-    random_values[:, 3:] *= 10.0
-    if random_replace.any():
-        genes[selected_rows[random_replace], selected_sats[random_replace]] = (
-            random_values[random_replace]
+EXPORT_BOUNDARY_REFERENCE = """
+import sys
+import numpy as np
+from src.evaluation.cases import make_reference_problem
+
+udp = make_reference_problem(sys.argv[1])
+lower, upper = udp.get_bounds()
+inverse_maps = np.stack([np.linalg.pinv(stm[:3, :]) for stm in udp.stms])
+np.savez_compressed(
+    sys.argv[2],
+    stms=udp.stms,
+    inverse_maps=inverse_maps,
+    n_sat=udp.n_sat,
+    grid_size=udp.grid_size,
+    n_meas=udp.n_meas,
+    scaling_factor=udp.scaling_factor,
+    inflation_factor=udp.inflation_factor,
+    lower_bounds=lower,
+    upper_bounds=upper,
+)
+"""
+
+
+def boundary_actions(incumbent, stms, inverse_maps, grid_size, lower, upper):
+    """Find single-satellite moves that cross one propagated grid boundary."""
+    incumbent = np.asarray(incumbent, dtype=np.float64)
+    lower = np.asarray(lower, dtype=np.float64)
+    upper = np.asarray(upper, dtype=np.float64)
+    n_sat = incumbent.size // 6
+    states = incumbent.reshape(6, n_sat).T
+    state_lower = lower.reshape(6, n_sat).T
+    state_upper = upper.reshape(6, n_sat).T
+    cell_width = 2.0 / grid_size
+    epsilon = cell_width * 1e-5
+    center = int(grid_size / 2)
+    actions = [[] for _ in range(n_sat)]
+
+    for stm, inverse_map in zip(stms, inverse_maps):
+        position_map = stm[:3, :]
+        positions = np.sum(
+            states[:, None, :] * position_map[None, :, :], axis=2
         )
 
-    local_rows = selected_rows[~random_replace]
-    local_sats = selected_sats[~random_replace]
-    if local_rows.size:
-        noise = rng.normal(size=(local_rows.size, 6))
-        scale = np.exp(rng.uniform(np.log(0.05), np.log(10.0), size=local_rows.size))
-        genes[local_rows, local_sats] += np.einsum(
-            "bi,ji->bj", noise, mutation_map
-        ) * scale[:, None]
+        for satellite in range(n_sat):
+            for axis in range(3):
+                position = positions[satellite, axis]
+                if position <= -1.0:
+                    directions = (1,)
+                elif position >= 1.0:
+                    directions = (-1,)
+                else:
+                    directions = (-1, 1)
 
-    candidates = genes.transpose(0, 2, 1).reshape(count, 6 * n_sat)
+                cell = int(np.floor(position / cell_width + center))
+                for direction in directions:
+                    boundary_cell = cell + (1 if direction > 0 else 0)
+                    boundary = (boundary_cell - center) * cell_width
+                    for cell_step in CELL_STEPS:
+                        if position <= -1.0:
+                            target = -1.0 + epsilon + (cell_step - 1) * cell_width
+                        elif position >= 1.0:
+                            target = 1.0 - epsilon - (cell_step - 1) * cell_width
+                        else:
+                            target = boundary + direction * (
+                                (cell_step - 1) * cell_width + epsilon
+                            )
+
+                        state = states[satellite] + inverse_map[:, axis] * (
+                            target - position
+                        )
+                        state = np.clip(
+                            state, state_lower[satellite], state_upper[satellite]
+                        )
+                        reached = float(np.sum(position_map[axis] * state))
+                        if direction > 0 and reached <= boundary:
+                            continue
+                        if direction < 0 and reached >= boundary:
+                            continue
+                        if direction > 0 and reached < target - epsilon / 2:
+                            continue
+                        if direction < 0 and reached > target + epsilon / 2:
+                            continue
+                        if np.array_equal(state, states[satellite]):
+                            continue
+                        actions[satellite].append(state)
+
+    return actions
+
+
+def propose_boundary_candidates(
+    incumbent,
+    count,
+    n_sat,
+    lower,
+    upper,
+    stms,
+    inverse_maps,
+    grid_size,
+    move_size,
+    rng,
+):
+    """Cross nearby projected cell boundaries, combining moves after stalls."""
+    actions = boundary_actions(
+        incumbent, stms, inverse_maps, grid_size, lower, upper
+    )
+    available = np.flatnonzero([bool(options) for options in actions])
+    if available.size == 0:
+        raise RuntimeError("No feasible grid-boundary moves from the incumbent.")
+
+    if move_size == 1:
+        max_actions_per_satellite = len(stms) * 3 * 2 * len(CELL_STEPS)
+        candidates = np.repeat(
+            incumbent[None, :],
+            available.size * max_actions_per_satellite,
+            axis=0,
+        )
+        row = 0
+        states = candidates.reshape(-1, 6, n_sat)
+        for satellite in available:
+            for state in actions[satellite]:
+                states[row, :, satellite] = state
+                row += 1
+        return candidates[:row]
+
+    candidates = np.repeat(incumbent[None, :], count, axis=0)
+    states = candidates.reshape(count, 6, n_sat)
+    moves_per_candidate = min(move_size, available.size)
+    for row in range(count):
+        satellites = rng.choice(
+            available, size=moves_per_candidate, replace=False
+        )
+        for satellite in satellites:
+            state = actions[satellite][rng.integers(len(actions[satellite]))]
+            states[row, :, satellite] = state
     return np.clip(candidates, lower, upper)
 
 
@@ -64,14 +162,22 @@ def main():
     parser.add_argument("--seed", type=int, default=239817)
     parser.add_argument("--target-score", type=float, default=-1.5)
     parser.add_argument("--checkpoint-every", type=int, default=25)
+    parser.add_argument(
+        "--patience",
+        type=int,
+        default=10,
+        help="stop after this many non-improving batches at the largest move size",
+    )
     args = parser.parse_args()
-    if min(args.evaluations, args.batch_size, args.checkpoint_every) <= 0:
-        raise ValueError("evaluations, batch-size, and checkpoint-every must be positive")
+    if min(args.evaluations, args.batch_size, args.checkpoint_every, args.patience) <= 0:
+        raise ValueError(
+            "evaluations, batch-size, checkpoint-every, and patience must be positive"
+        )
 
     case_id = args.case
     spec = get_case(case_id)
     best_path = Path("results/cases") / f"{case_id}_min_best.npz"
-    checkpoint_path = Path("results/cases") / f"{case_id}_coordinate_checkpoint.npz"
+    checkpoint_path = Path("results/cases") / f"{case_id}_boundary_checkpoint.npz"
     with np.load(best_path) as saved:
         incumbent = np.asarray(saved["x"], dtype=np.float64)
         incumbent_fitness = float(saved["fitness"])
@@ -80,22 +186,40 @@ def main():
     evaluations_done = 0
     move_level = 0
     stagnant_batches = 0
+    plateau_batches = 0
     levels = [1, 2, 3, 5, 8, 12, 20]
     if checkpoint_path.exists():
         with np.load(checkpoint_path, allow_pickle=False) as saved:
-            if str(saved["case_id"].item()) != case_id or int(saved["seed"]) != args.seed:
+            checkpoint_version = (
+                int(saved["checkpoint_version"])
+                if "checkpoint_version" in saved.files
+                else 1
+            )
+            if (
+                str(saved["case_id"].item()) != case_id
+                or int(saved["seed"]) != args.seed
+            ):
                 raise ValueError("Coordinate-search checkpoint case/seed does not match.")
-            incumbent = np.asarray(saved["incumbent"], dtype=np.float64)
-            incumbent_fitness = float(saved["incumbent_fitness"])
-            evaluations_done = int(saved["evaluations_done"])
-            move_level = int(saved["move_level"])
-            stagnant_batches = int(saved["stagnant_batches"])
-            rng.bit_generator.state = json.loads(str(saved["rng_state"].item()))
-        print(
-            f"Resuming after {evaluations_done:,} evaluations; "
-            f"best {incumbent_fitness:.12g}; seed {args.seed}",
-            flush=True,
-        )
+            if checkpoint_version == CHECKPOINT_VERSION:
+                incumbent = np.asarray(saved["incumbent"], dtype=np.float64)
+                incumbent_fitness = float(saved["incumbent_fitness"])
+                evaluations_done = int(saved["evaluations_done"])
+                move_level = int(saved["move_level"])
+                stagnant_batches = int(saved["stagnant_batches"])
+                if "plateau_batches" in saved.files:
+                    plateau_batches = int(saved["plateau_batches"])
+                rng.bit_generator.state = json.loads(str(saved["rng_state"].item()))
+                print(
+                    f"Resuming after {evaluations_done:,} evaluations; "
+                    f"best {incumbent_fitness:.12g}; seed {args.seed}",
+                    flush=True,
+                )
+            else:
+                print(
+                    "Ignoring an older boundary-search checkpoint; "
+                    f"restarting from saved best {incumbent_fitness:.12g}.",
+                    flush=True,
+                )
     elif (Path("results/cases") / f"{case_id}_random_checkpoint.npz").exists():
         random_checkpoint = Path("results/cases") / f"{case_id}_random_checkpoint.npz"
         with np.load(random_checkpoint, allow_pickle=False) as saved:
@@ -117,6 +241,7 @@ def main():
         temp_checkpoint = checkpoint_path.with_name(checkpoint_path.stem + ".tmp.npz")
         np.savez_compressed(
             temp_checkpoint,
+            checkpoint_version=CHECKPOINT_VERSION,
             case_id=case_id,
             seed=args.seed,
             incumbent=incumbent,
@@ -124,6 +249,7 @@ def main():
             evaluations_done=evaluations_done,
             move_level=move_level,
             stagnant_batches=stagnant_batches,
+            plateau_batches=plateau_batches,
             rng_state=json.dumps(rng.bit_generator.state),
         )
         temp_checkpoint.replace(checkpoint_path)
@@ -139,16 +265,26 @@ def main():
         candidate_path = temp_path / "candidate.npz"
         verified_path = temp_path / "verified.npz"
         subprocess.run(
-            [sys.executable, "-c", EXPORT_REFERENCE, case_id, str(cache_path)],
+            [
+                sys.executable,
+                "-c",
+                EXPORT_BOUNDARY_REFERENCE,
+                case_id,
+                str(cache_path),
+            ],
             check=True,
         )
         with np.load(cache_path) as data:
             n_sat = int(data["n_sat"])
-            mutation_map = np.asarray(data["mutation_map"], dtype=np.float64)
+            stms = np.asarray(data["stms"], dtype=np.float64)
+            inverse_maps = np.asarray(data["inverse_maps"], dtype=np.float64)
+            grid_size = int(data["grid_size"])
+            lower = np.asarray(data["lower_bounds"], dtype=np.float64)
+            upper = np.asarray(data["upper_bounds"], dtype=np.float64)
             reference = SimpleNamespace(
-                stms=np.asarray(data["stms"], dtype=np.float64),
+                stms=stms,
                 n_sat=n_sat,
-                grid_size=int(data["grid_size"]),
+                grid_size=grid_size,
                 n_meas=int(data["n_meas"]),
                 scaling_factor=float(data["scaling_factor"]),
                 inflation_factor=float(data["inflation_factor"]),
@@ -157,11 +293,23 @@ def main():
         from src.evaluation.gpu import gpu_fitness_batch
 
         while local_evaluations < args.evaluations and incumbent_fitness > args.target_score:
-            count = min(args.batch_size, args.evaluations - local_evaluations)
             move_size = levels[min(move_level, len(levels) - 1)]
-            candidates = propose_from_incumbent(
-                incumbent, count, n_sat, lower, upper, mutation_map, move_size, rng
+            remaining = args.evaluations - local_evaluations
+            count = min(args.batch_size, remaining)
+            candidates = propose_boundary_candidates(
+                incumbent,
+                count,
+                n_sat,
+                lower,
+                upper,
+                stms,
+                inverse_maps,
+                grid_size,
+                move_size,
+                rng,
             )
+            candidates = candidates[:remaining]
+            count = len(candidates)
             fitnesses = gpu_fitness_batch(candidates, reference).detach().cpu().numpy()
             local_evaluations += count
             evaluations_done += count
@@ -173,13 +321,17 @@ def main():
                 best_found_at = evaluations_done
                 move_level = 0
                 stagnant_batches = 0
+                plateau_batches = 0
                 print(
                     f"evaluation {evaluations_done:,}: best {incumbent_fitness:.12g}",
                     flush=True,
                 )
             else:
                 stagnant_batches += 1
-                if stagnant_batches >= 100:
+                if move_size == levels[-1]:
+                    plateau_batches += 1
+                stagnation_limit = 1 if move_size == 1 else 5
+                if stagnant_batches >= stagnation_limit:
                     move_level = min(move_level + 1, len(levels) - 1)
                     stagnant_batches = 0
 
@@ -188,9 +340,17 @@ def main():
                 save_checkpoint()
                 print(
                     f"progress {local_evaluations:,}/{args.evaluations:,}; "
-                    f"best {incumbent_fitness:.12g}; group size {move_size}",
+                    f"best {incumbent_fitness:.12g}; "
+                    f"boundary moves per proposal {move_size}",
                     flush=True,
                 )
+            if move_level == len(levels) - 1 and plateau_batches >= args.patience:
+                print(
+                    f"Stopping after {plateau_batches} batches without improvement "
+                    f"at move size {levels[-1]}.",
+                    flush=True,
+                )
+                break
 
         np.savez_compressed(candidate_path, x=incumbent)
         subprocess.run(

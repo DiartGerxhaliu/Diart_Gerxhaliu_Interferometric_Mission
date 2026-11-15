@@ -1,8 +1,17 @@
 """ESA SpOC-3 interferometric mission configurations for all three levels."""
 
+import importlib.util
+from pathlib import Path
+
+
+REFERENCE_DIR = Path(__file__).resolve().parents[2] / "reference"
+
 CASES = {
     "easy": {
         "problem_id": "tiny-observatory-in-dro",
+        "reference_file": (
+            "spoc-3-interferometric-mission-tiny-observatory-in-dro-1711466574922.py"
+        ),
         "n_sat": 5,
         "grid_size": 11,
         "ic": [
@@ -17,6 +26,9 @@ CASES = {
     },
     "medium": {
         "problem_id": "large-observatory-in-dro",
+        "reference_file": (
+            "spoc-3-interferometric-mission-large-observatory-in-dro-1711466585914.py"
+        ),
         "n_sat": 40,
         "grid_size": 21,
         "ic": [
@@ -31,6 +43,7 @@ CASES = {
     },
     "hard": {
         "problem_id": "large-observatory-in-halo",
+        "reference_file": "esa_reference.py",
         "n_sat": 40,
         "grid_size": 21,
         "ic": [
@@ -52,6 +65,8 @@ MU = 0.01215058560962404
 SCALING_FACTOR = 1e-4
 INFLATION_FACTOR = 1.23
 
+_LOADED_PROBLEMS = {}
+
 
 def get_case(case_id):
     try:
@@ -61,22 +76,47 @@ def get_case(case_id):
         raise ValueError(f"Unknown case {case_id!r}; choose one of: {choices}.") from exc
 
 
-def make_reference_problem(case_id):
-    """Create the chosen ESA UDP; call only in a CPU-reference process."""
-    from reference.esa_reference import orbital_golomb_array, udp
-
-    if case_id == "hard":
-        return udp
-
+def _load_reference_udp(case_id):
+    """Load the official module-level UDP. Filenames are not valid imports."""
     spec = get_case(case_id)
-    return orbital_golomb_array(
-        n_sat=spec["n_sat"],
-        ic=spec["ic"],
-        T=spec["period"] * (N_OBSERVATIONS - 1),
-        grid_size=spec["grid_size"],
-        scaling_factor=SCALING_FACTOR,
-        n_meas=N_OBSERVATIONS,
-        inflation_factor=INFLATION_FACTOR,
-        mu=MU,
-        verbose=False,
-    )
+    path = REFERENCE_DIR / spec["reference_file"]
+    if not path.is_file():
+        raise FileNotFoundError(f"Missing {case_id} evaluator at {path}.")
+
+    import heyoka
+
+    if heyoka.__version__ != "3.2.0":
+        raise RuntimeError(
+            f"The ESA evaluators require heyoka==3.2.0; found {heyoka.__version__}."
+        )
+
+    module_name = f"_esa_official_{case_id}"
+    loader_spec = importlib.util.spec_from_file_location(module_name, path)
+    if loader_spec is None or loader_spec.loader is None:
+        raise ImportError(f"Cannot load {case_id} evaluator from {path}.")
+    module = importlib.util.module_from_spec(loader_spec)
+    if case_id == "hard":
+        source = path.read_text(encoding="utf-8")
+        if source.count("sol[5]") != 2:
+            raise RuntimeError(f"Unexpected Heyoka integration code in {path}.")
+        # The local HALO copy uses the Heyoka 7 tuple index; ESA pins version 3.2.
+        source = source.replace("sol[5]", "sol[4]")
+        exec(compile(source, str(path), "exec"), module.__dict__)
+    else:
+        loader_spec.loader.exec_module(module)
+    return module.udp
+
+
+def make_reference_problem(case_id):
+    """Return that case's official ESA UDP. Call only in a CPU-reference process."""
+    if case_id not in _LOADED_PROBLEMS:
+        udp = _load_reference_udp(case_id)
+        spec = get_case(case_id)
+        if udp.n_sat != spec["n_sat"] or udp.grid_size != spec["grid_size"]:
+            raise RuntimeError(
+                f"{case_id} evaluator has n_sat={udp.n_sat}, "
+                f"grid_size={udp.grid_size}; expected n_sat={spec['n_sat']}, "
+                f"grid_size={spec['grid_size']}."
+            )
+        _LOADED_PROBLEMS[case_id] = udp
+    return _LOADED_PROBLEMS[case_id]

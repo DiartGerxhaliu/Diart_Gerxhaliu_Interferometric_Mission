@@ -348,10 +348,13 @@ def make_block_proposals(
     genes = parents.reshape(count, 6, n_sat).transpose(0, 2, 1).copy()
     donor_genes = donors.reshape(count, 6, n_sat).transpose(0, 2, 1)
 
-    move_sizes = rng.choice(
-        np.asarray([1, 2, 3, 5, 8, max(1, n_sat // 2)]),
-        size=count,
-        p=[0.43, 0.24, 0.14, 0.10, 0.06, 0.03],
+    move_sizes = np.minimum(
+        rng.choice(
+            np.asarray([1, 2, 3, 5, 8, max(1, n_sat // 2)]),
+            size=count,
+            p=[0.43, 0.24, 0.14, 0.10, 0.06, 0.03],
+        ),
+        n_sat,
     )
     changed = np.zeros((count, n_sat), dtype=bool)
     keys = rng.random((count, n_sat))
