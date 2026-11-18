@@ -13,8 +13,8 @@ import numpy as np
 from benchmarks.run_optimization import VERIFY_REFERENCE
 from src.evaluation.cases import CASE_ORDER, get_case
 
-CELL_STEPS = (1, 2, 4)
-CHECKPOINT_VERSION = 3
+CELL_STEPS = (1, 2, 4, 8, 16)
+CHECKPOINT_VERSION = 6
 
 
 EXPORT_BOUNDARY_REFERENCE = """
@@ -24,10 +24,17 @@ from src.evaluation.cases import make_reference_problem
 
 udp = make_reference_problem(sys.argv[1])
 lower, upper = udp.get_bounds()
-inverse_maps = np.stack([np.linalg.pinv(stm[:3, :]) for stm in udp.stms])
+position_maps = np.stack(
+    [
+        stm[:3, :] / (udp.inflation_factor if index else 1.0)
+        for index, stm in enumerate(udp.stms)
+    ]
+)
+inverse_maps = np.stack([np.linalg.pinv(position_map) for position_map in position_maps])
 np.savez_compressed(
     sys.argv[2],
     stms=udp.stms,
+    position_maps=position_maps,
     inverse_maps=inverse_maps,
     n_sat=udp.n_sat,
     grid_size=udp.grid_size,
@@ -40,7 +47,9 @@ np.savez_compressed(
 """
 
 
-def boundary_actions(incumbent, stms, inverse_maps, grid_size, lower, upper):
+def boundary_actions(
+    incumbent, position_maps, inverse_maps, grid_size, lower, upper
+):
     """Find single-satellite moves that cross one propagated grid boundary."""
     incumbent = np.asarray(incumbent, dtype=np.float64)
     lower = np.asarray(lower, dtype=np.float64)
@@ -54,8 +63,7 @@ def boundary_actions(incumbent, stms, inverse_maps, grid_size, lower, upper):
     center = int(grid_size / 2)
     actions = [[] for _ in range(n_sat)]
 
-    for stm, inverse_map in zip(stms, inverse_maps):
-        position_map = stm[:3, :]
+    for position_map, inverse_map in zip(position_maps, inverse_maps):
         positions = np.sum(
             states[:, None, :] * position_map[None, :, :], axis=2
         )
@@ -112,7 +120,7 @@ def propose_boundary_candidates(
     n_sat,
     lower,
     upper,
-    stms,
+    position_maps,
     inverse_maps,
     grid_size,
     move_size,
@@ -120,14 +128,16 @@ def propose_boundary_candidates(
 ):
     """Cross nearby projected cell boundaries, combining moves after stalls."""
     actions = boundary_actions(
-        incumbent, stms, inverse_maps, grid_size, lower, upper
+        incumbent, position_maps, inverse_maps, grid_size, lower, upper
     )
     available = np.flatnonzero([bool(options) for options in actions])
     if available.size == 0:
         raise RuntimeError("No feasible grid-boundary moves from the incumbent.")
 
     if move_size == 1:
-        max_actions_per_satellite = len(stms) * 3 * 2 * len(CELL_STEPS)
+        max_actions_per_satellite = (
+            len(position_maps) * 3 * 2 * len(CELL_STEPS)
+        )
         candidates = np.repeat(
             incumbent[None, :],
             available.size * max_actions_per_satellite,
@@ -165,13 +175,26 @@ def main():
     parser.add_argument(
         "--patience",
         type=int,
-        default=10,
-        help="stop after this many non-improving batches at the largest move size",
+        default=100,
+        help="stop after this many plateau batches at the largest move size",
+    )
+    parser.add_argument(
+        "--anneal-temperature",
+        type=float,
+        default=0.005,
+        help="maximum fitness increase allowed during plateau exploration",
     )
     args = parser.parse_args()
-    if min(args.evaluations, args.batch_size, args.checkpoint_every, args.patience) <= 0:
+    if min(
+        args.evaluations,
+        args.batch_size,
+        args.checkpoint_every,
+        args.patience,
+        args.anneal_temperature,
+    ) <= 0:
         raise ValueError(
-            "evaluations, batch-size, checkpoint-every, and patience must be positive"
+            "evaluations, batch-size, checkpoint-every, patience, and "
+            "anneal-temperature must be positive"
         )
 
     case_id = args.case
@@ -181,6 +204,8 @@ def main():
     with np.load(best_path) as saved:
         incumbent = np.asarray(saved["x"], dtype=np.float64)
         incumbent_fitness = float(saved["fitness"])
+    current = incumbent.copy()
+    current_fitness = incumbent_fitness
 
     rng = np.random.default_rng(args.seed)
     evaluations_done = 0
@@ -203,6 +228,8 @@ def main():
             if checkpoint_version == CHECKPOINT_VERSION:
                 incumbent = np.asarray(saved["incumbent"], dtype=np.float64)
                 incumbent_fitness = float(saved["incumbent_fitness"])
+                current = np.asarray(saved["current"], dtype=np.float64)
+                current_fitness = float(saved["current_fitness"])
                 evaluations_done = int(saved["evaluations_done"])
                 move_level = int(saved["move_level"])
                 stagnant_batches = int(saved["stagnant_batches"])
@@ -246,6 +273,8 @@ def main():
             seed=args.seed,
             incumbent=incumbent,
             incumbent_fitness=incumbent_fitness,
+            current=current,
+            current_fitness=current_fitness,
             evaluations_done=evaluations_done,
             move_level=move_level,
             stagnant_batches=stagnant_batches,
@@ -277,6 +306,7 @@ def main():
         with np.load(cache_path) as data:
             n_sat = int(data["n_sat"])
             stms = np.asarray(data["stms"], dtype=np.float64)
+            position_maps = np.asarray(data["position_maps"], dtype=np.float64)
             inverse_maps = np.asarray(data["inverse_maps"], dtype=np.float64)
             grid_size = int(data["grid_size"])
             lower = np.asarray(data["lower_bounds"], dtype=np.float64)
@@ -297,12 +327,12 @@ def main():
             remaining = args.evaluations - local_evaluations
             count = min(args.batch_size, remaining)
             candidates = propose_boundary_candidates(
-                incumbent,
+                current,
                 count,
                 n_sat,
                 lower,
                 upper,
-                stms,
+                position_maps,
                 inverse_maps,
                 grid_size,
                 move_size,
@@ -326,14 +356,33 @@ def main():
                     f"evaluation {evaluations_done:,}: best {incumbent_fitness:.12g}",
                     flush=True,
                 )
+            if batch_best < current_fitness:
+                current_fitness = batch_best
+                current = candidates[best_index].copy()
             else:
+                near_best = np.flatnonzero(fitnesses <= batch_best + 0.01)
+                proposal_index = int(rng.choice(near_best))
+                proposal_fitness = float(fitnesses[proposal_index])
+                increase = proposal_fitness - current_fitness
+                if increase <= 0 or rng.random() < np.exp(
+                    -increase / args.anneal_temperature
+                ):
+                    current_fitness = proposal_fitness
+                    current = candidates[proposal_index].copy()
+
+            if batch_best >= incumbent_fitness:
                 stagnant_batches += 1
                 if move_size == levels[-1]:
                     plateau_batches += 1
                 stagnation_limit = 1 if move_size == 1 else 5
                 if stagnant_batches >= stagnation_limit:
-                    move_level = min(move_level + 1, len(levels) - 1)
+                    if move_level == len(levels) - 1:
+                        move_level = 0
+                    else:
+                        move_level += 1
                     stagnant_batches = 0
+            else:
+                stagnant_batches = 0
 
             batches_done = local_evaluations // args.batch_size
             if batches_done % args.checkpoint_every == 0:
@@ -344,13 +393,17 @@ def main():
                     f"boundary moves per proposal {move_size}",
                     flush=True,
                 )
-            if move_level == len(levels) - 1 and plateau_batches >= args.patience:
+            if plateau_batches >= args.patience:
                 print(
-                    f"Stopping after {plateau_batches} batches without improvement "
-                    f"at move size {levels[-1]}.",
+                    f"Reheating after {plateau_batches} maximum-move batches "
+                    "without improvement.",
                     flush=True,
                 )
-                break
+                current = incumbent.copy()
+                current_fitness = incumbent_fitness
+                move_level = 0
+                stagnant_batches = 0
+                plateau_batches = 0
 
         np.savez_compressed(candidate_path, x=incumbent)
         subprocess.run(

@@ -51,7 +51,7 @@ The best candidate is stored internally at `results/cases/hard_min_best.npz`; th
 
 ## Current medium-case status
 
-The latest CPU-verified large-observatory-in-DRO candidate scores `-1.7031528851873885` (the requested target is `-1.75`). Multiscale boundary-guided search reached this score after 74,540 evaluations; a subsequent 73,419-evaluation continuation stopped at its plateau without improvement. The current vector is in `results/cases/medium_min_best.npz`, with its resumable local-search state in `results/cases/medium_boundary_checkpoint.npz`.
+The latest CPU-verified large-observatory-in-DRO candidate scores `-1.7507436049970253`, meeting the requested `-1.75` target. Annealed multiscale boundary-guided search found it after 10,334,428 total evaluations. Its candidate is in `results/cases/medium_min_best.npz`, with resumable walker and search state in `results/cases/medium_boundary_checkpoint.npz`.
 
 To continue the medium search, run:
 
