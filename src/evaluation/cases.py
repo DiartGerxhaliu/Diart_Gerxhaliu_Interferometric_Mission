@@ -95,15 +95,7 @@ def _load_reference_udp(case_id):
     if loader_spec is None or loader_spec.loader is None:
         raise ImportError(f"Cannot load {case_id} evaluator from {path}.")
     module = importlib.util.module_from_spec(loader_spec)
-    if case_id == "hard":
-        source = path.read_text(encoding="utf-8")
-        if source.count("sol[5]") != 2:
-            raise RuntimeError(f"Unexpected Heyoka integration code in {path}.")
-        # The local HALO copy uses the Heyoka 7 tuple index; ESA pins version 3.2.
-        source = source.replace("sol[5]", "sol[4]")
-        exec(compile(source, str(path), "exec"), module.__dict__)
-    else:
-        loader_spec.loader.exec_module(module)
+    loader_spec.loader.exec_module(module)
     return module.udp
 
 

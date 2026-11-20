@@ -1,0 +1,71 @@
+Started: 2026-11-20T20:52:22+01:00
+Segment: 1; case: hard; algorithm: coordinate-search
+Starting saved best: -1.42236763831
+
+Resuming after 21,805,473 evaluations; best -1.42236763831; seed 239817
+progress 51,200/10,000,000; best -1.42236763831; boundary moves per proposal 20
+progress 103,877/10,000,000; best -1.42236763831; boundary moves per proposal 12
+progress 154,604/10,000,000; best -1.42236763831; boundary moves per proposal 8
+Randomized all 240 working values at evaluation 22,000,000; saved best remains -1.42236763831
+Reheating after 100 batches without improvement.
+Diversification restart randomized 1/40 satellite states; best -1.42236763831
+progress 206,217/10,000,000; best -1.42236763831; boundary moves per proposal 2
+progress 257,417/10,000,000; best -1.42236763831; boundary moves per proposal 20
+progress 308,617/10,000,000; best -1.42236763831; boundary moves per proposal 8
+progress 359,817/10,000,000; best -1.42236763831; boundary moves per proposal 5
+Randomized all 240 working values at evaluation 22,200,000; saved best remains -1.42236763831
+Reheating after 100 batches without improvement.
+Diversification restart randomized 5/40 satellite states; best -1.42236763831
+progress 410,241/10,000,000; best -1.42236763831; boundary moves per proposal 2
+progress 461,441/10,000,000; best -1.42236763831; boundary moves per proposal 20
+progress 512,641/10,000,000; best -1.42236763831; boundary moves per proposal 8
+progress 563,841/10,000,000; best -1.42236763831; boundary moves per proposal 5
+Randomized all 240 working values at evaluation 22,400,000; saved best remains -1.42236763831
+Reheating after 100 batches without improvement.
+Diversification restart randomized 10/40 satellite states; best -1.42236763831
+progress 614,435/10,000,000; best -1.42236763831; boundary moves per proposal 2
+progress 665,635/10,000,000; best -1.42236763831; boundary moves per proposal 20
+progress 716,835/10,000,000; best -1.42236763831; boundary moves per proposal 8
+progress 768,035/10,000,000; best -1.42236763831; boundary moves per proposal 5
+Randomized all 240 working values at evaluation 22,600,000; saved best remains -1.42236763831
+Reheating after 100 batches without improvement.
+Diversification restart randomized 20/40 satellite states; best -1.42236763831
+progress 820,466/10,000,000; best -1.42236763831; boundary moves per proposal 2
+progress 871,666/10,000,000; best -1.42236763831; boundary moves per proposal 20
+progress 922,866/10,000,000; best -1.42236763831; boundary moves per proposal 12
+progress 974,066/10,000,000; best -1.42236763831; boundary moves per proposal 5
+Randomized all 240 working values at evaluation 22,800,000; saved best remains -1.42236763831
+Reheating after 100 batches without improvement.
+Diversification restart randomized 40/40 satellite states; best -1.42236763831
+progress 1,024,091/10,000,000; best -1.42236763831; boundary moves per proposal 2
+progress 1,075,291/10,000,000; best -1.42236763831; boundary moves per proposal 20
+progress 1,127,987/10,000,000; best -1.42236763831; boundary moves per proposal 12
+progress 1,178,774/10,000,000; best -1.42236763831; boundary moves per proposal 8
+Randomized all 240 working values at evaluation 23,000,000; saved best remains -1.42236763831
+Reheating after 100 batches without improvement.
+Diversification restart randomized 1/40 satellite states; best -1.42236763831
+progress 1,230,745/10,000,000; best -1.42236763831; boundary moves per proposal 2
+progress 1,281,945/10,000,000; best -1.42236763831; boundary moves per proposal 20
+progress 1,333,145/10,000,000; best -1.42236763831; boundary moves per proposal 12
+progress 1,384,345/10,000,000; best -1.42236763831; boundary moves per proposal 8
+Randomized all 240 working values at evaluation 23,200,000; saved best remains -1.42236763831
+Reheating after 100 batches without improvement.
+Diversification restart randomized 5/40 satellite states; best -1.42236763831
+progress 1,434,876/10,000,000; best -1.42236763831; boundary moves per proposal 2
+progress 1,486,076/10,000,000; best -1.42236763831; boundary moves per proposal 20
+progress 1,537,276/10,000,000; best -1.42236763831; boundary moves per proposal 12
+progress 1,588,476/10,000,000; best -1.42236763831; boundary moves per proposal 8
+Randomized all 240 working values at evaluation 23,400,000; saved best remains -1.42236763831
+Reheating after 100 batches without improvement.
+Diversification restart randomized 10/40 satellite states; best -1.42236763831
+progress 1,638,995/10,000,000; best -1.42236763831; boundary moves per proposal 2
+progress 1,690,195/10,000,000; best -1.42236763831; boundary moves per proposal 20
+progress 1,741,395/10,000,000; best -1.42236763831; boundary moves per proposal 12
+progress 1,792,595/10,000,000; best -1.42236763831; boundary moves per proposal 8
+Randomized all 240 working values at evaluation 23,600,000; saved best remains -1.42236763831
+Reheating after 100 batches without improvement.
+Diversification restart randomized 20/40 satellite states; best -1.42236763831
+progress 1,845,101/10,000,000; best -1.42236763831; boundary moves per proposal 2
+progress 1,896,301/10,000,000; best -1.42236763831; boundary moves per proposal 20
+
+Interrupted by user before this segment completed.

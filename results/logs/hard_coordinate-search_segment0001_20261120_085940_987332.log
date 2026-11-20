@@ -1,0 +1,9 @@
+Started: 2026-11-20T08:59:40+01:00
+Segment: 1; case: hard; algorithm: coordinate-search
+Starting saved best: -1.42236763831
+
+Resuming after 10,523,520 evaluations; best -1.42236763831; seed 239817
+progress 51,879/10,000,000; best -1.42236763831; boundary moves per proposal 12
+progress 103,759/10,000,000; best -1.42236763831; boundary moves per proposal 8
+
+Interrupted by user before this segment completed.

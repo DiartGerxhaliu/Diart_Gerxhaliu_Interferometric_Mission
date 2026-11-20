@@ -1,0 +1,25 @@
+Started: 2026-11-20T09:06:57+01:00
+Segment: 1; case: hard; algorithm: coordinate-search
+Starting saved best: -1.42236763831
+
+Resuming after 10,627,279 evaluations; best -1.42236763831; seed 239817
+Traceback (most recent call last):
+  File "<string>", line 6, in <module>
+  File "C:\Users\User\Desktop\Fakultet\DAA\Diart_Gerxhaliu_Interferometric_Mission\src\evaluation\cases.py", line 105, in make_reference_problem
+    udp = _load_reference_udp(case_id)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\User\Desktop\Fakultet\DAA\Diart_Gerxhaliu_Interferometric_Mission\src\evaluation\cases.py", line 86, in _load_reference_udp
+    import heyoka
+ModuleNotFoundError: No module named 'heyoka'
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "C:\Users\User\Desktop\Fakultet\DAA\Diart_Gerxhaliu_Interferometric_Mission\benchmarks\run_coordinate_search.py", line 487, in <module>
+    main()
+  File "C:\Users\User\Desktop\Fakultet\DAA\Diart_Gerxhaliu_Interferometric_Mission\benchmarks\run_coordinate_search.py", line 305, in main
+    subprocess.run(
+  File "C:\Users\User\AppData\Local\Programs\Python\Python312\Lib\subprocess.py", line 571, in run
+    raise CalledProcessError(retcode, process.args,
+subprocess.CalledProcessError: Command '['C:\\Users\\User\\Desktop\\Fakultet\\DAA\\Diart_Gerxhaliu_Interferometric_Mission\\esa-env\\Scripts\\python.exe', '-c', '\nimport sys\nimport numpy as np\nfrom src.evaluation.cases import make_reference_problem\n\nudp = make_reference_problem(sys.argv[1])\nlower, upper = udp.get_bounds()\nposition_maps = np.stack(\n    [\n        stm[:3, :] / (udp.inflation_factor if index else 1.0)\n        for index, stm in enumerate(udp.stms)\n    ]\n)\ninverse_maps = np.stack([np.linalg.pinv(position_map) for position_map in position_maps])\nnp.savez_compressed(\n    sys.argv[2],\n    stms=udp.stms,\n    position_maps=position_maps,\n    inverse_maps=inverse_maps,\n    n_sat=udp.n_sat,\n    grid_size=udp.grid_size,\n    n_meas=udp.n_meas,\n    scaling_factor=udp.scaling_factor,\n    inflation_factor=udp.inflation_factor,\n    lower_bounds=lower,\n    upper_bounds=upper,\n)\n', 'hard', 'C:\\Users\\User\\AppData\\Local\\Temp\\esa_coordinate_search_qp62qj16\\reference.npz']' returned non-zero exit status 1.
+
+Search exited with code 1.

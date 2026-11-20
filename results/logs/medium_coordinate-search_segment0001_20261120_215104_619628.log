@@ -1,0 +1,19 @@
+Started: 2026-11-20T21:51:04+01:00
+Segment: 1; case: medium; algorithm: coordinate-search
+Starting saved best: -1.67340868531
+
+Resuming after 56,647,104 evaluations; best -1.72694824509; seed 777
+progress 51,202/10,000,000; best -1.72694824509; boundary moves per proposal 8
+progress 102,402/10,000,000; best -1.72694824509; boundary moves per proposal 3
+progress 153,602/10,000,000; best -1.72694824509; boundary moves per proposal 2
+progress 204,802/10,000,000; best -1.72694824509; boundary moves per proposal 20
+progress 256,002/10,000,000; best -1.72694824509; boundary moves per proposal 12
+progress 307,202/10,000,000; best -1.72694824509; boundary moves per proposal 8
+Randomized 10/40 satellite states at evaluation 57,000,000; saved best remains -1.72694824509
+progress 359,040/10,000,000; best -1.72694824509; boundary moves per proposal 2
+progress 410,240/10,000,000; best -1.72694824509; boundary moves per proposal 20
+progress 461,440/10,000,000; best -1.72694824509; boundary moves per proposal 12
+progress 512,640/10,000,000; best -1.72694824509; boundary moves per proposal 5
+progress 563,840/10,000,000; best -1.72694824509; boundary moves per proposal 3
+
+Interrupted by user before this segment completed.

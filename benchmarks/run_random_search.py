@@ -12,6 +12,10 @@ import numpy as np
 
 from benchmarks.run_optimization import EXPORT_REFERENCE, VERIFY_REFERENCE, random_candidates
 from src.evaluation.cases import CASE_ORDER, get_case
+from src.evaluation.constraints import (
+    enforce_observation_bounds,
+    is_inside_observation_bounds,
+)
 
 
 def main():
@@ -101,6 +105,7 @@ def main():
         )
         with np.load(cache_path) as data:
             n_sat = int(data["n_sat"])
+            position_maps = np.asarray(data["position_maps"], dtype=np.float64)
             reference = SimpleNamespace(
                 stms=np.asarray(data["stms"], dtype=np.float64),
                 n_sat=n_sat,
@@ -112,12 +117,22 @@ def main():
 
         from src.evaluation.gpu import gpu_fitness_batch
 
+        def score_batch(candidates):
+            enforce_observation_bounds(candidates, position_maps, n_sat)
+            return gpu_fitness_batch(candidates, reference).detach().cpu().numpy()
+
+        enforce_observation_bounds(best_x, position_maps, n_sat)
+        best_fitness = float(score_batch(best_x)[0])
+        local_evaluations += 1
+        evaluations_done += 1
+        best_found_at = evaluations_done
+
         while local_evaluations < args.evaluations and best_fitness > args.target_score:
             count = min(args.batch_size, args.evaluations - local_evaluations)
             candidates = random_candidates(
                 count, search_lower, search_upper, n_sat, 10.0, rng
             )
-            fitnesses = gpu_fitness_batch(candidates, reference).detach().cpu().numpy()
+            fitnesses = score_batch(candidates)
             local_evaluations += count
             evaluations_done += count
             best_index = int(np.argmin(fitnesses))
@@ -150,7 +165,15 @@ def main():
 
     if abs(best_fitness - cpu_fitness) > 1e-10:
         raise RuntimeError(f"CPU/GPU verification mismatch: {cpu_fitness} vs {best_fitness}.")
-    if cpu_fitness < float(np.load(best_path)["fitness"]):
+    if not is_inside_observation_bounds(best_x, position_maps, n_sat):
+        raise RuntimeError(f"Best {case_id} candidate violates observation bounds.")
+    with np.load(best_path, allow_pickle=False) as saved:
+        saved_fitness = float(saved["fitness"])
+        saved_x = np.asarray(saved["x"], dtype=np.float64)
+    if (
+        not is_inside_observation_bounds(saved_x, position_maps, n_sat)
+        or cpu_fitness < saved_fitness
+    ):
         np.savez_compressed(
             best_path,
             x=best_x,

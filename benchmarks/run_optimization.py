@@ -11,7 +11,12 @@ from types import SimpleNamespace
 
 import numpy as np
 
+from benchmarks.build_submission import save_candidate_progress
 from src.evaluation.cases import CASE_ORDER, get_case
+from src.evaluation.constraints import (
+    enforce_observation_bounds,
+    is_inside_observation_bounds,
+)
 
 
 EXPORT_REFERENCE = """
@@ -21,6 +26,12 @@ from src.evaluation.cases import make_reference_problem
 
 udp = make_reference_problem(sys.argv[1])
 lower, upper = udp.get_bounds()
+position_maps = np.stack(
+    [
+        stm[:3, :] / (udp.inflation_factor if observation else 1.0)
+        for observation, stm in enumerate(udp.stms)
+    ]
+)
 weighted_maps = []
 for observation, stm in enumerate(udp.stms):
     inflation = udp.inflation_factor if observation else 1.0
@@ -34,6 +45,7 @@ np.savez_compressed(
     stms=udp.stms,
     n_sat=udp.n_sat,
     grid_size=udp.grid_size,
+    position_maps=position_maps,
     n_meas=udp.n_meas,
     scaling_factor=udp.scaling_factor,
     inflation_factor=udp.inflation_factor,
@@ -433,6 +445,7 @@ def main():
             lower = np.asarray(data["lower_bounds"], dtype=np.float64)
             upper = np.asarray(data["upper_bounds"], dtype=np.float64)
             mutation_map = np.asarray(data["mutation_map"], dtype=np.float64)
+            position_maps = np.asarray(data["position_maps"], dtype=np.float64)
             reference = SimpleNamespace(
                 stms=np.asarray(data["stms"], dtype=np.float64),
                 n_sat=n_sat,
@@ -451,6 +464,8 @@ def main():
             search_upper[3 * n_sat :], args.velocity_bound
         )
         def score_batch(candidates):
+            enforce_observation_bounds(candidates, position_maps, n_sat)
+            candidates[...] = canonicalize_candidates(candidates, n_sat)
             return gpu_fitness_batch(candidates, reference).detach().cpu().numpy()
 
         if best_path.exists():
@@ -501,6 +516,17 @@ def main():
             best_x = population[improved].copy()
             best_fitness = float(population_fitness[improved])
             best_found_at = scored
+            save_candidate_progress(
+                case_id,
+                best_x,
+                best_fitness,
+                objective="min",
+                algorithm=args.algorithm,
+                seed=args.seed,
+                iterations=scored,
+                best_found_at=best_found_at,
+            )
+            print(f"evaluation {scored:,}: best {best_fitness:.12g}", flush=True)
 
         print("Search:", args.algorithm, "| GPU-batched population")
         print("Case:", case_id, "| ESA problem:", spec["problem_id"])
@@ -596,10 +622,17 @@ def main():
                 best_found_at = scored
                 stagnant_generations = 0
                 step_multiplier = max(0.5, step_multiplier * 0.85)
-                print(
-                    f"evaluations {scored:>9}: best fitness {best_fitness:.12g}",
-                    flush=True,
+                save_candidate_progress(
+                    case_id,
+                    best_x,
+                    best_fitness,
+                    objective="min",
+                    algorithm=args.algorithm,
+                    seed=args.seed,
+                    iterations=scored,
+                    best_found_at=best_found_at,
                 )
+                print(f"evaluation {scored:,}: best {best_fitness:.12g}", flush=True)
             else:
                 stagnant_generations += 1
                 if success_rate > 0.02:
@@ -679,10 +712,17 @@ def main():
                     best_x = refreshed[refreshed_best].copy()
                     best_fitness = float(refreshed_fitness[refreshed_best])
                     best_found_at = scored
-                    print(
-                        f"restart at {scored:>9}: best fitness {best_fitness:.12g}",
-                        flush=True,
+                    save_candidate_progress(
+                        case_id,
+                        best_x,
+                        best_fitness,
+                        objective="min",
+                        algorithm=args.algorithm,
+                        seed=args.seed,
+                        iterations=scored,
+                        best_found_at=best_found_at,
                     )
+                    print(f"evaluation {scored:,}: best {best_fitness:.12g}", flush=True)
                 stagnant_generations = 0
 
             if generation % 25 == 0 or scored >= args.iterations:
@@ -723,6 +763,8 @@ def main():
         raise RuntimeError(
             f"GPU/CPU score mismatch for {case_id}: {best_fitness} vs {cpu_fitness}."
         )
+    if not is_inside_observation_bounds(best_x, position_maps, n_sat):
+        raise RuntimeError(f"Best {case_id} candidate violates observation bounds.")
 
     np.savez_compressed(
         best_path,

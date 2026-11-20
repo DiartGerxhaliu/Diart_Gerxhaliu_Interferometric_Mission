@@ -1,0 +1,18 @@
+Started: 2026-11-20T08:58:31+01:00
+Segment: 1; case: hard; algorithm: coordinate-search
+Starting saved best: -1.42236763831
+
+Resuming after 10,010,000 evaluations; best -1.42236763831; seed 239817
+progress 51,939/10,000,000; best -1.42236763831; boundary moves per proposal 12
+progress 103,873/10,000,000; best -1.42236763831; boundary moves per proposal 8
+progress 153,738/10,000,000; best -1.42236763831; boundary moves per proposal 3
+progress 205,653/10,000,000; best -1.42236763831; boundary moves per proposal 2
+progress 256,853/10,000,000; best -1.42236763831; boundary moves per proposal 20
+Reheating after 100 maximum-move batches without improvement.
+progress 308,730/10,000,000; best -1.42236763831; boundary moves per proposal 12
+progress 358,562/10,000,000; best -1.42236763831; boundary moves per proposal 8
+progress 410,441/10,000,000; best -1.42236763831; boundary moves per proposal 3
+progress 462,320/10,000,000; best -1.42236763831; boundary moves per proposal 2
+progress 513,520/10,000,000; best -1.42236763831; boundary moves per proposal 20
+
+Interrupted by user before this segment completed.

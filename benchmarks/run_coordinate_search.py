@@ -10,11 +10,44 @@ from types import SimpleNamespace
 
 import numpy as np
 
+from benchmarks.build_submission import save_candidate_progress
 from benchmarks.run_optimization import VERIFY_REFERENCE
 from src.evaluation.cases import CASE_ORDER, get_case
+from src.evaluation.constraints import (
+    enforce_observation_bounds,
+    is_inside_observation_bounds,
+)
 
 CELL_STEPS = (1, 2, 4, 8, 16)
-CHECKPOINT_VERSION = 6
+CHECKPOINT_VERSION = 7
+RANDOM_RESTART_EVERY = 1_000_000
+PARTIAL_RANDOMIZE_FRACTION = 0.25
+
+
+def evaluations_until_random_restart(evaluations_done):
+    return RANDOM_RESTART_EVERY - (evaluations_done % RANDOM_RESTART_EVERY)
+
+
+def make_partial_random_restart_candidate(current, lower, upper, n_sat, rng):
+    candidate = np.asarray(current, dtype=np.float64).copy()
+    lower = np.asarray(lower, dtype=np.float64)
+    upper = np.asarray(upper, dtype=np.float64)
+    if (
+        candidate.shape != (6 * n_sat,)
+        or lower.shape != candidate.shape
+        or upper.shape != candidate.shape
+    ):
+        raise ValueError("Candidate and bounds must each have shape (6*n_sat,).")
+
+    count = max(1, int(np.ceil(n_sat * PARTIAL_RANDOMIZE_FRACTION)))
+    satellites = rng.choice(n_sat, size=count, replace=False)
+    states = candidate.reshape(6, n_sat)
+    lower_states = lower.reshape(6, n_sat)
+    upper_states = upper.reshape(6, n_sat)
+    states[:, satellites] = rng.uniform(
+        lower_states[:, satellites], upper_states[:, satellites]
+    )
+    return candidate, satellites
 
 
 EXPORT_BOUNDARY_REFERENCE = """
@@ -173,12 +206,6 @@ def main():
     parser.add_argument("--target-score", type=float, default=-1.5)
     parser.add_argument("--checkpoint-every", type=int, default=25)
     parser.add_argument(
-        "--patience",
-        type=int,
-        default=100,
-        help="stop after this many plateau batches at the largest move size",
-    )
-    parser.add_argument(
         "--anneal-temperature",
         type=float,
         default=0.005,
@@ -189,11 +216,10 @@ def main():
         args.evaluations,
         args.batch_size,
         args.checkpoint_every,
-        args.patience,
         args.anneal_temperature,
     ) <= 0:
         raise ValueError(
-            "evaluations, batch-size, checkpoint-every, patience, and "
+            "evaluations, batch-size, checkpoint-every, and "
             "anneal-temperature must be positive"
         )
 
@@ -211,7 +237,6 @@ def main():
     evaluations_done = 0
     move_level = 0
     stagnant_batches = 0
-    plateau_batches = 0
     levels = [1, 2, 3, 5, 8, 12, 20]
     if checkpoint_path.exists():
         with np.load(checkpoint_path, allow_pickle=False) as saved:
@@ -225,7 +250,7 @@ def main():
                 or int(saved["seed"]) != args.seed
             ):
                 raise ValueError("Coordinate-search checkpoint case/seed does not match.")
-            if checkpoint_version == CHECKPOINT_VERSION:
+            if checkpoint_version in (6, CHECKPOINT_VERSION):
                 incumbent = np.asarray(saved["incumbent"], dtype=np.float64)
                 incumbent_fitness = float(saved["incumbent_fitness"])
                 current = np.asarray(saved["current"], dtype=np.float64)
@@ -233,8 +258,6 @@ def main():
                 evaluations_done = int(saved["evaluations_done"])
                 move_level = int(saved["move_level"])
                 stagnant_batches = int(saved["stagnant_batches"])
-                if "plateau_batches" in saved.files:
-                    plateau_batches = int(saved["plateau_batches"])
                 rng.bit_generator.state = json.loads(str(saved["rng_state"].item()))
                 print(
                     f"Resuming after {evaluations_done:,} evaluations; "
@@ -278,7 +301,6 @@ def main():
             evaluations_done=evaluations_done,
             move_level=move_level,
             stagnant_batches=stagnant_batches,
-            plateau_batches=plateau_batches,
             rng_state=json.dumps(rng.bit_generator.state),
         )
         temp_checkpoint.replace(checkpoint_path)
@@ -322,10 +344,87 @@ def main():
 
         from src.evaluation.gpu import gpu_fitness_batch
 
+        def score_batch(candidates):
+            enforce_observation_bounds(candidates, position_maps, n_sat)
+            return gpu_fitness_batch(candidates, reference).detach().cpu().numpy()
+
+        enforce_observation_bounds(incumbent, position_maps, n_sat)
+        enforce_observation_bounds(current, position_maps, n_sat)
+        incumbent_fitness = float(score_batch(incumbent)[0])
+        local_evaluations += 1
+        evaluations_done += 1
+        if np.array_equal(current, incumbent):
+            current_fitness = incumbent_fitness
+        else:
+            current_fitness = float(score_batch(current)[0])
+            local_evaluations += 1
+            evaluations_done += 1
+        best_found_at = evaluations_done
+        with np.load(best_path, allow_pickle=False) as saved:
+            saved_fitness = float(saved["fitness"])
+        if incumbent_fitness < saved_fitness:
+            save_candidate_progress(
+                case_id,
+                incumbent,
+                incumbent_fitness,
+                objective="min",
+                algorithm="coordinate-search",
+                seed=args.seed,
+                iterations=evaluations_done,
+                best_found_at=best_found_at,
+            )
+            print(
+                f"evaluation {evaluations_done:,}: best {incumbent_fitness:.12g}",
+                flush=True,
+            )
+        save_checkpoint()
+
         while local_evaluations < args.evaluations and incumbent_fitness > args.target_score:
-            move_size = levels[min(move_level, len(levels) - 1)]
             remaining = args.evaluations - local_evaluations
-            count = min(args.batch_size, remaining)
+            evaluations_to_restart = evaluations_until_random_restart(
+                evaluations_done
+            )
+            if evaluations_to_restart == 1:
+                current, randomized_satellites = (
+                    make_partial_random_restart_candidate(
+                        incumbent, lower, upper, n_sat, rng
+                    )
+                )
+                current_fitness = float(score_batch(current)[0])
+                local_evaluations += 1
+                evaluations_done += 1
+                if current_fitness < incumbent_fitness:
+                    incumbent = current.copy()
+                    incumbent_fitness = current_fitness
+                    best_found_at = evaluations_done
+                    save_candidate_progress(
+                        case_id,
+                        incumbent,
+                        incumbent_fitness,
+                        objective="min",
+                        algorithm="coordinate-search",
+                        seed=args.seed,
+                        iterations=evaluations_done,
+                        best_found_at=best_found_at,
+                    )
+                    print(
+                        f"evaluation {evaluations_done:,}: best "
+                        f"{incumbent_fitness:.12g}",
+                        flush=True,
+                    )
+                move_level = 0
+                stagnant_batches = 0
+                save_checkpoint()
+                print(
+                    f"Randomized {len(randomized_satellites)}/{n_sat} satellite "
+                    f"states at evaluation {evaluations_done:,}; saved best remains "
+                    f"{incumbent_fitness:.12g}",
+                    flush=True,
+                )
+                continue
+
+            move_size = levels[min(move_level, len(levels) - 1)]
+            count = min(args.batch_size, remaining, evaluations_to_restart - 1)
             candidates = propose_boundary_candidates(
                 current,
                 count,
@@ -338,20 +437,30 @@ def main():
                 move_size,
                 rng,
             )
-            candidates = candidates[:remaining]
+            candidates = candidates[:count]
             count = len(candidates)
-            fitnesses = gpu_fitness_batch(candidates, reference).detach().cpu().numpy()
+            fitnesses = score_batch(candidates)
             local_evaluations += count
             evaluations_done += count
             best_index = int(np.argmin(fitnesses))
             batch_best = float(fitnesses[best_index])
-            if batch_best < incumbent_fitness:
+            improved_incumbent = batch_best < incumbent_fitness
+            if improved_incumbent:
                 incumbent_fitness = batch_best
                 incumbent = candidates[best_index].copy()
                 best_found_at = evaluations_done
                 move_level = 0
                 stagnant_batches = 0
-                plateau_batches = 0
+                save_candidate_progress(
+                    case_id,
+                    incumbent,
+                    incumbent_fitness,
+                    objective="min",
+                    algorithm="coordinate-search",
+                    seed=args.seed,
+                    iterations=evaluations_done,
+                    best_found_at=best_found_at,
+                )
                 print(
                     f"evaluation {evaluations_done:,}: best {incumbent_fitness:.12g}",
                     flush=True,
@@ -370,10 +479,8 @@ def main():
                     current_fitness = proposal_fitness
                     current = candidates[proposal_index].copy()
 
-            if batch_best >= incumbent_fitness:
+            if not improved_incumbent:
                 stagnant_batches += 1
-                if move_size == levels[-1]:
-                    plateau_batches += 1
                 stagnation_limit = 1 if move_size == 1 else 5
                 if stagnant_batches >= stagnation_limit:
                     if move_level == len(levels) - 1:
@@ -393,18 +500,6 @@ def main():
                     f"boundary moves per proposal {move_size}",
                     flush=True,
                 )
-            if plateau_batches >= args.patience:
-                print(
-                    f"Reheating after {plateau_batches} maximum-move batches "
-                    "without improvement.",
-                    flush=True,
-                )
-                current = incumbent.copy()
-                current_fitness = incumbent_fitness
-                move_level = 0
-                stagnant_batches = 0
-                plateau_batches = 0
-
         np.savez_compressed(candidate_path, x=incumbent)
         subprocess.run(
             [sys.executable, "-c", VERIFY_REFERENCE, case_id, str(candidate_path), str(verified_path)],
@@ -416,9 +511,15 @@ def main():
 
     if abs(incumbent_fitness - cpu_fitness) > 1e-10:
         raise RuntimeError(f"CPU/GPU verification mismatch: {cpu_fitness} vs {incumbent_fitness}.")
+    if not is_inside_observation_bounds(incumbent, position_maps, n_sat):
+        raise RuntimeError(f"Best {case_id} candidate violates observation bounds.")
     with np.load(best_path) as saved:
         saved_fitness = float(saved["fitness"])
-    if cpu_fitness < saved_fitness:
+        saved_x = np.asarray(saved["x"], dtype=np.float64)
+    if (
+        not is_inside_observation_bounds(saved_x, position_maps, n_sat)
+        or cpu_fitness < saved_fitness
+    ):
         np.savez_compressed(
             best_path,
             x=incumbent,

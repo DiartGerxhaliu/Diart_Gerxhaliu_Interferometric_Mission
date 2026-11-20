@@ -1,0 +1,37 @@
+Started: 2026-11-20T21:18:46+01:00
+Segment: 1; case: hard; algorithm: coordinate-search
+Starting saved best: -1.15348007139
+
+Resuming after 23,701,774 evaluations; best -1.42236763831; seed 239817
+progress 51,202/10,000,000; best -0.990481856038; boundary moves per proposal 12
+Randomized all 240 working values at evaluation 23,800,000; saved best remains -0.990481856038
+progress 104,370/10,000,000; best -0.990481856038; boundary moves per proposal 2
+progress 155,570/10,000,000; best -0.990481856038; boundary moves per proposal 20
+progress 206,770/10,000,000; best -0.990481856038; boundary moves per proposal 12
+progress 257,970/10,000,000; best -0.990481856038; boundary moves per proposal 5
+Randomized all 240 working values at evaluation 24,000,000; saved best remains -0.990481856038
+progress 308,466/10,000,000; best -0.990481856038; boundary moves per proposal 2
+progress 359,666/10,000,000; best -0.990481856038; boundary moves per proposal 20
+progress 410,866/10,000,000; best -0.990481856038; boundary moves per proposal 12
+progress 462,066/10,000,000; best -0.990481856038; boundary moves per proposal 8
+Randomized all 240 working values at evaluation 24,200,000; saved best remains -0.990481856038
+progress 512,562/10,000,000; best -0.990481856038; boundary moves per proposal 3
+progress 563,762/10,000,000; best -0.990481856038; boundary moves per proposal 1
+progress 614,962/10,000,000; best -0.990481856038; boundary moves per proposal 12
+progress 666,162/10,000,000; best -0.990481856038; boundary moves per proposal 8
+Randomized all 240 working values at evaluation 24,400,000; saved best remains -0.990481856038
+progress 718,706/10,000,000; best -0.990481856038; boundary moves per proposal 3
+progress 769,906/10,000,000; best -0.990481856038; boundary moves per proposal 2
+progress 821,106/10,000,000; best -0.990481856038; boundary moves per proposal 20
+progress 872,306/10,000,000; best -0.990481856038; boundary moves per proposal 12
+Randomized all 240 working values at evaluation 24,600,000; saved best remains -0.990481856038
+progress 922,802/10,000,000; best -0.990481856038; boundary moves per proposal 5
+progress 974,002/10,000,000; best -0.990481856038; boundary moves per proposal 2
+progress 1,025,202/10,000,000; best -0.990481856038; boundary moves per proposal 20
+progress 1,076,402/10,000,000; best -0.990481856038; boundary moves per proposal 12
+Randomized all 240 working values at evaluation 24,800,000; saved best remains -0.990481856038
+progress 1,126,898/10,000,000; best -0.990481856038; boundary moves per proposal 5
+progress 1,178,098/10,000,000; best -0.990481856038; boundary moves per proposal 3
+progress 1,229,298/10,000,000; best -0.990481856038; boundary moves per proposal 2
+
+Interrupted by user before this segment completed.

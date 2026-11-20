@@ -1,0 +1,14 @@
+Started: 2026-11-20T08:56:19+01:00
+Case: medium; algorithm: coordinate-search
+Starting saved best: -1.77096966092
+
+Resuming after 52,344,419 evaluations; best -1.77096966092; seed 777
+CPU verification difference: 2.220446049250313e-16
+Observation scores: [1.77096966 1.7733492  1.77096966]
+Total evaluations: 52344419
+Target: -1.0
+Final fitness: -1.7709696609161212
+Checkpoint: results\cases\medium_boundary_checkpoint.npz
+
+Run-local best (including starting candidate): -1.77096966092
+Improved saved best this run: no

@@ -1,0 +1,50 @@
+Started: 2026-11-20T22:07:50+01:00
+Segment: 1; case: medium; algorithm: coordinate-search
+Starting best candidate/checkpoint: -1.72694824509
+
+Resuming after 60,847,872 evaluations; best -1.72694824509; seed 777
+progress 51,202/2,000,000; best -1.72694824509; boundary moves per proposal 2
+progress 102,402/2,000,000; best -1.72694824509; boundary moves per proposal 20
+Randomized 10/40 satellite states at evaluation 61,000,000; saved best remains -1.72694824509
+progress 154,176/2,000,000; best -1.72694824509; boundary moves per proposal 1
+progress 205,376/2,000,000; best -1.72694824509; boundary moves per proposal 12
+progress 256,576/2,000,000; best -1.72694824509; boundary moves per proposal 8
+progress 307,776/2,000,000; best -1.72694824509; boundary moves per proposal 5
+progress 358,976/2,000,000; best -1.72694824509; boundary moves per proposal 3
+progress 410,176/2,000,000; best -1.72694824509; boundary moves per proposal 2
+progress 461,376/2,000,000; best -1.72694824509; boundary moves per proposal 20
+progress 512,576/2,000,000; best -1.72694824509; boundary moves per proposal 8
+progress 563,776/2,000,000; best -1.72694824509; boundary moves per proposal 5
+progress 614,976/2,000,000; best -1.72694824509; boundary moves per proposal 3
+progress 666,176/2,000,000; best -1.72694824509; boundary moves per proposal 2
+progress 717,376/2,000,000; best -1.72694824509; boundary moves per proposal 20
+progress 768,576/2,000,000; best -1.72694824509; boundary moves per proposal 12
+progress 819,776/2,000,000; best -1.72694824509; boundary moves per proposal 5
+progress 870,976/2,000,000; best -1.72694824509; boundary moves per proposal 3
+progress 922,176/2,000,000; best -1.72694824509; boundary moves per proposal 2
+progress 973,376/2,000,000; best -1.72694824509; boundary moves per proposal 20
+progress 1,024,576/2,000,000; best -1.72694824509; boundary moves per proposal 12
+progress 1,075,776/2,000,000; best -1.72694824509; boundary moves per proposal 8
+progress 1,126,976/2,000,000; best -1.72694824509; boundary moves per proposal 3
+Randomized 10/40 satellite states at evaluation 62,000,000; saved best remains -1.72694824509
+progress 1,178,752/2,000,000; best -1.72694824509; boundary moves per proposal 5
+progress 1,229,952/2,000,000; best -1.72694824509; boundary moves per proposal 3
+progress 1,281,152/2,000,000; best -1.72694824509; boundary moves per proposal 1
+progress 1,332,352/2,000,000; best -1.72694824509; boundary moves per proposal 12
+progress 1,383,552/2,000,000; best -1.72694824509; boundary moves per proposal 8
+progress 1,434,752/2,000,000; best -1.72694824509; boundary moves per proposal 5
+progress 1,485,952/2,000,000; best -1.72694824509; boundary moves per proposal 3
+progress 1,537,152/2,000,000; best -1.72694824509; boundary moves per proposal 2
+progress 1,588,352/2,000,000; best -1.72694824509; boundary moves per proposal 20
+progress 1,639,552/2,000,000; best -1.72694824509; boundary moves per proposal 8
+progress 1,690,752/2,000,000; best -1.72694824509; boundary moves per proposal 5
+progress 1,741,952/2,000,000; best -1.72694824509; boundary moves per proposal 3
+progress 1,793,152/2,000,000; best -1.72694824509; boundary moves per proposal 2
+progress 1,844,352/2,000,000; best -1.72694824509; boundary moves per proposal 20
+progress 1,895,552/2,000,000; best -1.72694824509; boundary moves per proposal 12
+progress 1,946,752/2,000,000; best -1.72694824509; boundary moves per proposal 5
+progress 1,997,952/2,000,000; best -1.72694824509; boundary moves per proposal 3
+OMP: Error #15: Initializing libomp.dll, but found libiomp5md.dll already initialized.
+OMP: Hint: This means that multiple copies of the OpenMP runtime have been linked into the program. That is dangerous, since it can degrade performance or cause incorrect results. The best thing to do is to ensure that only a single OpenMP runtime is linked into the process, e.g. by avoiding static linking of the OpenMP runtime in any library. As an unsafe, unsupported, undocumented workaround you can set the environment variable KMP_DUPLICATE_LIB_OK=TRUE to allow the program to continue to execute, but that may cause crashes or silently produce incorrect results. For more information, please see http://openmp.llvm.org/
+
+Search exited with code 3.
