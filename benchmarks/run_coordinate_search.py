@@ -19,13 +19,13 @@ from src.evaluation.constraints import (
 )
 
 CELL_STEPS = (1, 2, 4, 8, 16)
-CHECKPOINT_VERSION = 7
+CHECKPOINT_VERSION = 8
 RANDOM_RESTART_EVERY = 1_000_000
-PARTIAL_RANDOMIZE_FRACTION = 0.25
+MAX_PARTIAL_RANDOMIZE_FRACTION = 0.25
 
 
-def evaluations_until_random_restart(evaluations_done):
-    return RANDOM_RESTART_EVERY - (evaluations_done % RANDOM_RESTART_EVERY)
+def evaluations_until_random_restart(evaluations_without_improvement):
+    return RANDOM_RESTART_EVERY - evaluations_without_improvement
 
 
 def make_partial_random_restart_candidate(current, lower, upper, n_sat, rng):
@@ -39,7 +39,8 @@ def make_partial_random_restart_candidate(current, lower, upper, n_sat, rng):
     ):
         raise ValueError("Candidate and bounds must each have shape (6*n_sat,).")
 
-    count = max(1, int(np.ceil(n_sat * PARTIAL_RANDOMIZE_FRACTION)))
+    max_count = max(1, int(np.ceil(n_sat * MAX_PARTIAL_RANDOMIZE_FRACTION)))
+    count = int(rng.integers(1, max_count + 1))
     satellites = rng.choice(n_sat, size=count, replace=False)
     states = candidate.reshape(6, n_sat)
     lower_states = lower.reshape(6, n_sat)
@@ -240,6 +241,7 @@ def main():
 
     rng = np.random.default_rng(args.seed)
     evaluations_done = 0
+    evaluations_without_improvement = 0
     move_level = 0
     stagnant_batches = 0
     levels = [1, 2, 3, 5, 8, 12, 20]
@@ -255,12 +257,16 @@ def main():
                 or int(saved["seed"]) != args.seed
             ):
                 raise ValueError("Coordinate-search checkpoint case/seed does not match.")
-            if checkpoint_version in (6, CHECKPOINT_VERSION):
+            if checkpoint_version in (6, 7, CHECKPOINT_VERSION):
                 incumbent = np.asarray(saved["incumbent"], dtype=np.float64)
                 incumbent_fitness = float(saved["incumbent_fitness"])
                 current = np.asarray(saved["current"], dtype=np.float64)
                 current_fitness = float(saved["current_fitness"])
                 evaluations_done = int(saved["evaluations_done"])
+                if "evaluations_without_improvement" in saved.files:
+                    evaluations_without_improvement = int(
+                        saved["evaluations_without_improvement"]
+                    )
                 move_level = int(saved["move_level"])
                 stagnant_batches = int(saved["stagnant_batches"])
                 rng.bit_generator.state = json.loads(str(saved["rng_state"].item()))
@@ -292,6 +298,14 @@ def main():
             flush=True,
         )
 
+    with np.load(best_path, allow_pickle=False) as saved:
+        saved_best = np.asarray(saved["x"], dtype=np.float64)
+        saved_fitness = float(saved["fitness"])
+    if saved_fitness < incumbent_fitness:
+        incumbent = saved_best.copy()
+        incumbent_fitness = saved_fitness
+        evaluations_without_improvement = 0
+
     def save_checkpoint():
         temp_checkpoint = checkpoint_path.with_name(checkpoint_path.stem + ".tmp.npz")
         np.savez_compressed(
@@ -304,6 +318,7 @@ def main():
             current=current,
             current_fitness=current_fitness,
             evaluations_done=evaluations_done,
+            evaluations_without_improvement=evaluations_without_improvement,
             move_level=move_level,
             stagnant_batches=stagnant_batches,
             rng_state=json.dumps(rng.bit_generator.state),
@@ -368,6 +383,7 @@ def main():
         with np.load(best_path, allow_pickle=False) as saved:
             saved_fitness = float(saved["fitness"])
         if incumbent_fitness < saved_fitness:
+            evaluations_without_improvement = 0
             save_candidate_progress(
                 case_id,
                 incumbent,
@@ -386,10 +402,7 @@ def main():
 
         while local_evaluations < args.evaluations and incumbent_fitness > args.target_score:
             remaining = args.evaluations - local_evaluations
-            evaluations_to_restart = evaluations_until_random_restart(
-                evaluations_done
-            )
-            if evaluations_to_restart == 1:
+            if evaluations_without_improvement >= RANDOM_RESTART_EVERY:
                 current, randomized_satellites = (
                     make_partial_random_restart_candidate(
                         incumbent, lower, upper, n_sat, rng
@@ -402,6 +415,7 @@ def main():
                     incumbent = current.copy()
                     incumbent_fitness = current_fitness
                     best_found_at = evaluations_done
+                    evaluations_without_improvement = 0
                     save_candidate_progress(
                         case_id,
                         incumbent,
@@ -417,19 +431,25 @@ def main():
                         f"{incumbent_fitness:.12g}",
                         flush=True,
                     )
+                else:
+                    evaluations_without_improvement = 1
                 move_level = 0
                 stagnant_batches = 0
                 save_checkpoint()
                 print(
                     f"Randomized {len(randomized_satellites)}/{n_sat} satellite "
-                    f"states at evaluation {evaluations_done:,}; saved best remains "
-                    f"{incumbent_fitness:.12g}",
+                    f"states after 1,000,000 evaluations without a new best; "
+                    f"score remains {incumbent_fitness:.12g}",
                     flush=True,
                 )
                 continue
 
+            evaluations_to_restart = evaluations_until_random_restart(
+                evaluations_without_improvement
+            )
+
             move_size = levels[min(move_level, len(levels) - 1)]
-            count = min(args.batch_size, remaining, evaluations_to_restart - 1)
+            count = min(args.batch_size, remaining, evaluations_to_restart)
             candidates = propose_boundary_candidates(
                 current,
                 count,
@@ -454,6 +474,7 @@ def main():
                 incumbent_fitness = batch_best
                 incumbent = candidates[best_index].copy()
                 best_found_at = evaluations_done
+                evaluations_without_improvement = 0
                 move_level = 0
                 stagnant_batches = 0
                 save_candidate_progress(
@@ -485,6 +506,7 @@ def main():
                     current = candidates[proposal_index].copy()
 
             if not improved_incumbent:
+                evaluations_without_improvement += count
                 stagnant_batches += 1
                 stagnation_limit = 1 if move_size == 1 else 5
                 if stagnant_batches >= stagnation_limit:
@@ -532,26 +554,24 @@ def main():
                 )
     if not is_inside_observation_bounds(incumbent, position_maps, n_sat):
         raise RuntimeError(f"Best {case_id} candidate violates observation bounds.")
-    with np.load(best_path) as saved:
-        saved_fitness = float(saved["fitness"])
-        saved_x = np.asarray(saved["x"], dtype=np.float64)
-    if (
-        not is_inside_observation_bounds(saved_x, position_maps, n_sat)
-        or cpu_fitness < saved_fitness
-    ):
-        save_metadata = {
-            "x": incumbent,
-            "fitness": cpu_fitness,
-            "objective": "min",
-            "case_id": case_id,
-            "algorithm": "coordinate-search",
-            "seed": args.seed,
-            "iterations": evaluations_done,
-            "best_found_at": best_found_at,
-        }
-        if observation_scores is not None:
-            save_metadata["observation_scores"] = observation_scores
-        np.savez_compressed(best_path, **save_metadata)
+    save_metadata = {
+        "objective": "min",
+        "algorithm": "coordinate-search",
+        "seed": args.seed,
+        "iterations": evaluations_done,
+        "best_found_at": best_found_at,
+    }
+    if observation_scores is not None:
+        save_metadata["observation_scores"] = observation_scores
+    save_candidate_progress(
+        case_id,
+        incumbent,
+        cpu_fitness,
+        replace_if=lambda saved: not is_inside_observation_bounds(
+            saved["x"], position_maps, n_sat
+        ),
+        **save_metadata,
+    )
     save_checkpoint()
     if observation_scores is not None:
         print("CPU verification difference:", abs(incumbent_fitness - cpu_fitness))

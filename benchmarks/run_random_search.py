@@ -10,6 +10,7 @@ from types import SimpleNamespace
 
 import numpy as np
 
+from benchmarks.build_submission import save_candidate_progress
 from benchmarks.run_optimization import EXPORT_REFERENCE, VERIFY_REFERENCE, random_candidates
 from src.evaluation.cases import CASE_ORDER, get_case
 from src.evaluation.constraints import (
@@ -52,9 +53,12 @@ def main():
         )
         temporary_checkpoint.replace(checkpoint_path)
 
-    with np.load(best_path) as saved:
-        best_x = np.asarray(saved["x"], dtype=np.float64)
-        best_fitness = float(saved["fitness"])
+    with np.load(best_path, allow_pickle=False) as saved:
+        archived_best_x = np.asarray(saved["x"], dtype=np.float64)
+        archived_best_fitness = float(saved["fitness"])
+    best_x = archived_best_x.copy()
+    best_fitness = archived_best_fitness
+    checkpoint_best_x = None
 
     rng = np.random.default_rng(args.seed)
     evaluations_done = 0
@@ -66,7 +70,8 @@ def main():
                 raise ValueError(
                     f"Checkpoint is for {old_case} seed {old_seed}, not {case_id} seed {args.seed}."
                 )
-            best_x = np.asarray(saved["best_x"], dtype=np.float64)
+            checkpoint_best_x = np.asarray(saved["best_x"], dtype=np.float64)
+            best_x = checkpoint_best_x.copy()
             best_fitness = float(saved["best_fitness"])
             evaluations_done = int(saved["evaluations_done"])
             rng.bit_generator.state = json.loads(str(saved["rng_state"].item()))
@@ -121,11 +126,38 @@ def main():
             enforce_observation_bounds(candidates, position_maps, n_sat)
             return gpu_fitness_batch(candidates, reference).detach().cpu().numpy()
 
-        enforce_observation_bounds(best_x, position_maps, n_sat)
-        best_fitness = float(score_batch(best_x)[0])
-        local_evaluations += 1
-        evaluations_done += 1
+        bootstrap_candidates = [archived_best_x]
+        if (
+            checkpoint_best_x is not None
+            and not np.array_equal(checkpoint_best_x, archived_best_x)
+        ):
+            bootstrap_candidates.append(checkpoint_best_x)
+        if len(bootstrap_candidates) > args.evaluations:
+            raise ValueError(
+                "evaluations must cover the saved candidate checks when resuming."
+            )
+        bootstrap_candidates = np.asarray(bootstrap_candidates, dtype=np.float64)
+        bootstrap_fitnesses = score_batch(bootstrap_candidates)
+        local_evaluations += len(bootstrap_candidates)
+        evaluations_done += len(bootstrap_candidates)
+        best_index = int(np.argmin(bootstrap_fitnesses))
+        best_x = bootstrap_candidates[best_index].copy()
+        best_fitness = float(bootstrap_fitnesses[best_index])
         best_found_at = evaluations_done
+        if best_fitness < archived_best_fitness:
+            save_candidate_progress(
+                case_id,
+                best_x,
+                best_fitness,
+                replace_if=lambda saved: not is_inside_observation_bounds(
+                    saved["x"], position_maps, n_sat
+                ),
+                objective="min",
+                algorithm="random-search",
+                seed=args.seed,
+                iterations=evaluations_done,
+                best_found_at=best_found_at,
+            )
 
         while local_evaluations < args.evaluations and best_fitness > args.target_score:
             count = min(args.batch_size, args.evaluations - local_evaluations)
@@ -140,6 +172,19 @@ def main():
                 best_fitness = float(fitnesses[best_index])
                 best_x = candidates[best_index].copy()
                 best_found_at = evaluations_done
+                save_candidate_progress(
+                    case_id,
+                    best_x,
+                    best_fitness,
+                    replace_if=lambda saved: not is_inside_observation_bounds(
+                        saved["x"], position_maps, n_sat
+                    ),
+                    objective="min",
+                    algorithm="random-search",
+                    seed=args.seed,
+                    iterations=evaluations_done,
+                    best_found_at=best_found_at,
+                )
                 print(
                     f"evaluation {evaluations_done:,}: best {best_fitness:.12g}",
                     flush=True,
@@ -167,25 +212,20 @@ def main():
         raise RuntimeError(f"CPU/GPU verification mismatch: {cpu_fitness} vs {best_fitness}.")
     if not is_inside_observation_bounds(best_x, position_maps, n_sat):
         raise RuntimeError(f"Best {case_id} candidate violates observation bounds.")
-    with np.load(best_path, allow_pickle=False) as saved:
-        saved_fitness = float(saved["fitness"])
-        saved_x = np.asarray(saved["x"], dtype=np.float64)
-    if (
-        not is_inside_observation_bounds(saved_x, position_maps, n_sat)
-        or cpu_fitness < saved_fitness
-    ):
-        np.savez_compressed(
-            best_path,
-            x=best_x,
-            fitness=cpu_fitness,
-            observation_scores=observation_scores,
-            objective="min",
-            case_id=case_id,
-            algorithm="random-search",
-            seed=args.seed,
-            iterations=evaluations_done,
-            best_found_at=best_found_at,
-        )
+    save_candidate_progress(
+        case_id,
+        best_x,
+        cpu_fitness,
+        replace_if=lambda saved: not is_inside_observation_bounds(
+            saved["x"], position_maps, n_sat
+        ),
+        observation_scores=observation_scores,
+        objective="min",
+        algorithm="random-search",
+        seed=args.seed,
+        iterations=evaluations_done,
+        best_found_at=best_found_at,
+    )
 
     save_checkpoint(best_x, best_fitness, evaluations_done, rng)
     print("CPU verification difference:", abs(best_fitness - cpu_fitness))

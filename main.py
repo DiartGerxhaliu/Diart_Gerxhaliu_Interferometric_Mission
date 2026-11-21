@@ -21,12 +21,12 @@ LOG_DIR = RESULTS_DIR / "logs"
 ALGORITHMS = ("coordinate-search", "de", "genetic", "block-anneal")
 DEFAULT_ALGORITHMS = {
     "easy": "coordinate-search",
-    "medium": "coordinate-search",
+    "medium": "de",
     "hard": "de",
 }
 SEARCH_CYCLES = {
     "easy": ("coordinate-search", "de", "genetic", "block-anneal"),
-    "medium": ("coordinate-search", "de", "genetic", "block-anneal"),
+    "medium": ("de", "coordinate-search", "genetic", "block-anneal"),
     "hard": ("de", "coordinate-search", "genetic", "block-anneal"),
 }
 
@@ -121,17 +121,13 @@ def build_search_command(args, algorithm=None):
         and (args.resume_rng is not None or args.rng_jump)
     ):
         raise ValueError("--resume-rng and --rng-jump apply only to population algorithms.")
-    if args.algorithm == "auto" and args.case == "medium":
-        budget = 2_000_000
+    if args.algorithm == "auto":
+        budget = 5_000_000
     else:
         budget = (
             10_000_000
             if coordinate_search
-            or (
-                args.algorithm != "auto"
-                and args.case == "hard"
-                and selected_algorithm == "de"
-            )
+            or (args.case == "hard" and selected_algorithm == "de")
             else 2_000_000
         )
     if args.batch_size <= 0:
@@ -397,17 +393,18 @@ def main():
                 f"\nStarting segment {segment_number} with {active_algorithm}.",
                 flush=True,
             )
-            improved = run_search_and_log(
+            run_search_and_log(
                 command, args.case, active_algorithm, segment_number
             )
             write_submission_if_better(args.case)
-            if args.algorithm == "auto" and not improved:
+            if args.algorithm == "auto":
                 next_algorithm = next_search_algorithm(
                     args.case, active_algorithm
                 )
                 print(
-                    f"No saved-score improvement; switching from "
-                    f"{active_algorithm} to {next_algorithm}.",
+                    f"Segment complete; switching from {active_algorithm} "
+                    f"to {next_algorithm}. Auto rotates every 5,000,000 "
+                    "evaluations regardless of improvement.",
                     flush=True,
                 )
                 active_algorithm = next_algorithm

@@ -1,0 +1,38 @@
+Started: 2026-11-21T16:39:37+01:00
+Segment: 1; case: hard; algorithm: coordinate-search
+Starting best candidate/checkpoint: -1.40690065437
+
+Resuming after 38,196,608 evaluations; best -1.18441403926; seed 239817
+progress 51,202/10,000,000; best -1.40690065437; boundary moves per proposal 20
+progress 102,402/10,000,000; best -1.40690065437; boundary moves per proposal 12
+progress 153,602/10,000,000; best -1.40690065437; boundary moves per proposal 5
+progress 204,802/10,000,000; best -1.40690065437; boundary moves per proposal 3
+progress 256,002/10,000,000; best -1.40690065437; boundary moves per proposal 2
+progress 307,202/10,000,000; best -1.40690065437; boundary moves per proposal 20
+progress 358,402/10,000,000; best -1.40690065437; boundary moves per proposal 12
+progress 409,602/10,000,000; best -1.40690065437; boundary moves per proposal 8
+progress 460,802/10,000,000; best -1.40690065437; boundary moves per proposal 3
+progress 512,002/10,000,000; best -1.40690065437; boundary moves per proposal 2
+progress 563,202/10,000,000; best -1.40690065437; boundary moves per proposal 20
+progress 614,402/10,000,000; best -1.40690065437; boundary moves per proposal 12
+progress 665,602/10,000,000; best -1.40690065437; boundary moves per proposal 8
+progress 716,802/10,000,000; best -1.40690065437; boundary moves per proposal 5
+progress 768,002/10,000,000; best -1.40690065437; boundary moves per proposal 2
+progress 819,202/10,000,000; best -1.40690065437; boundary moves per proposal 20
+progress 870,402/10,000,000; best -1.40690065437; boundary moves per proposal 12
+progress 921,602/10,000,000; best -1.40690065437; boundary moves per proposal 8
+progress 972,802/10,000,000; best -1.40690065437; boundary moves per proposal 5
+Randomized 3/40 satellite states after 1,000,000 evaluations without a new best; score remains -1.40690065437
+progress 1,024,579/10,000,000; best -1.40690065437; boundary moves per proposal 5
+progress 1,075,779/10,000,000; best -1.40690065437; boundary moves per proposal 2
+progress 1,126,979/10,000,000; best -1.40690065437; boundary moves per proposal 20
+progress 1,178,179/10,000,000; best -1.40690065437; boundary moves per proposal 12
+progress 1,229,379/10,000,000; best -1.40690065437; boundary moves per proposal 8
+progress 1,280,579/10,000,000; best -1.40690065437; boundary moves per proposal 5
+progress 1,331,779/10,000,000; best -1.40690065437; boundary moves per proposal 3
+progress 1,382,979/10,000,000; best -1.40690065437; boundary moves per proposal 1
+progress 1,434,179/10,000,000; best -1.40690065437; boundary moves per proposal 12
+progress 1,485,379/10,000,000; best -1.40690065437; boundary moves per proposal 8
+progress 1,536,579/10,000,000; best -1.40690065437; boundary moves per proposal 5
+
+Interrupted by user before this segment completed.

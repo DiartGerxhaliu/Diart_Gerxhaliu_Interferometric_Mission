@@ -40,21 +40,45 @@ $python = 'C:\Users\User\miniforge3\envs\esa_official_311\python.exe'
 
 `main.py` runs continuously until `Ctrl+C`; its evaluation budgets are per segment, not a total run limit. `--target-score` does not stop the continuous search: after reaching the target, the launcher removes the cutoff and continues.
 
+Recommended starting algorithms; run one GPU search at a time:
+
+```powershell
+& $python -u main.py --easy --algorithm coordinate-search
+& $python -u main.py --medium --algorithm de
+& $python -u main.py --hard --algorithm de
+```
+
+Run the focused regression tests with:
+
+```powershell
+& $python -m unittest benchmarks.test_population_algorithms benchmarks.test_main_algorithm_selection benchmarks.test_coordinate_search_restart benchmarks.test_candidate_save
+```
+
 ### Algorithms
 
 | Option | Behavior |
 |---|---|
-| `auto` (default) | Cycles methods when a completed segment does not improve the saved best. Easy/medium start with coordinate search; hard starts with DE. |
+| `auto` (default) | Rotates through all four methods after every 5 million evaluations, regardless of improvement. Easy starts with coordinate search; medium and hard start with DE. |
 | `coordinate-search` | Proposes changes that cross projected grid-cell boundaries. |
-| `de` | Differential evolution with whole-satellite crossover, adaptive differential scale, and population refreshes. |
+| `de` | Differential evolution with whole-satellite crossover, adaptive scale, neutral moves across score plateaus, and population refreshes. |
 | `genetic` | Rank-based selection, whole-satellite crossover, and mutation. |
 | `block-anneal` | Proposes satellite-state changes and accepts some worse candidates to explore. |
 
-Auto cycles through coordinate search, DE, genetic, and block annealing; hard starts at DE. Automatic hard-DE segments use 2 million evaluations so a stalled search can switch sooner. Coordinate-search segments use 10 million evaluations, except medium auto segments, which use 2 million. Other population-search segments use 2 million; explicitly selected hard DE uses 10 million. Explicitly selecting one algorithm disables switching; for example, `--hard --algorithm de` continues DE rather than switching methods.
+The standalone random-search utility is not a `main.py --algorithm` option; run it with `& $python -m benchmarks.run_random_search --case hard --evaluations 10000000`.
+
+### Recommendations by case
+
+| Case | Recommended algorithm | Why |
+|---|---|---|
+| Easy | `coordinate-search` | Only five satellites; direct grid-boundary moves target this discrete objective. This is a structure-based recommendation, not a controlled comparison. |
+| Medium | `de` | DE produced the current saved best (`-1.80785246877`); coordinate search's recorded medium run plateaued at a weaker score. |
+| Hard | `de` | The current saved hard candidate came from DE. Keep `auto` if you want it to try coordinate search, genetic, and block annealing after a segment stalls. |
+
+These are practical starting choices, not guarantees; the recorded searches were not equal-budget head-to-head trials. In auto mode, each method gets a 5-million-evaluation segment, then the launcher rotates to the next method whether or not the score improved. Easy starts with coordinate search; medium and hard start with DE. Explicit coordinate-search segments use 10 million evaluations; other explicit population-search segments use 2 million, except explicitly selected hard DE, which uses 10 million. Explicitly selecting one algorithm disables switching; for example, `--hard --algorithm de` continues DE rather than switching methods.
 
 Hard DE defaults to a population of 4096; other population searches default to 256. Useful options include `--batch-size`, `--population-size`, `--seed`, `--velocity-bound`, `--restart-after`, and `--temperature`. Run `& $python main.py --help` for the current CLI options. The launcher does not accept `--iterations`; direct optimizer modules do.
 
-Coordinate search randomizes 25% of the best-known candidate's satellite states every 1,000,000 evaluations, then enforces the observation bounds. Its saved best remains unchanged unless a feasible candidate scores better.
+Coordinate search randomizes a partial restart only after 1,000,000 evaluations without a new best, independently of auto's 5-million-evaluation algorithm rotation. It randomly chooses 1 to 25% of the satellite states (1 to 10 for a 40-satellite case), then enforces the observation bounds. A new best resets the stagnation counter, and the saved best is retained unless a feasible candidate scores better.
 
 ## Saved state and submissions
 
@@ -63,6 +87,8 @@ Coordinate search randomizes 25% of the best-known candidate's satellite states 
 - `results/cases/<case>_boundary_checkpoint.npz` stores coordinate-search progress.
 - `results/submissions/<case>_min_submission.json` stores the ESA submission for that case.
 - `results/logs/` contains the live output and final summary for each segment.
+
+For a valid saved candidate, optimizer writes only replace it with a strictly better score. Coordinate search also reconciles a resumed checkpoint with the latest saved candidate.
 
 If interrupted with `Ctrl+C`, saved candidate improvements remain, but the random state from an unfinished segment may not be saved. Resuming restores the last completed random-state checkpoint and creates a new population around the saved best.
 

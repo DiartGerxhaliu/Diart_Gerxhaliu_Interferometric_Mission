@@ -1,7 +1,12 @@
 """Build one ESA submission JSON per problem from verified case candidates."""
 
 import json
+import errno
+import hashlib
 import os
+import tempfile
+import time
+from contextlib import contextmanager
 from pathlib import Path
 
 import numpy as np
@@ -88,31 +93,86 @@ def solution_path(case_id):
     return Path("results/cases") / f"{case_id}_min_best.npz"
 
 
-def save_candidate_progress(case_id, candidate, fitness, **metadata):
+@contextmanager
+def _lock_candidate(path):
+    lock_id = hashlib.sha256(
+        os.path.normcase(str(path.resolve())).encode("utf-8")
+    ).hexdigest()
+    lock_path = Path(tempfile.gettempdir()) / f"esa_candidate_{lock_id}.lock"
+    with lock_path.open("a+b") as lock_file:
+        if os.name == "nt":
+            import msvcrt
+
+            lock_file.seek(0, os.SEEK_END)
+            if lock_file.tell() == 0:
+                lock_file.write(b"\0")
+                lock_file.flush()
+            while True:
+                try:
+                    lock_file.seek(0)
+                    msvcrt.locking(lock_file.fileno(), msvcrt.LK_LOCK, 1)
+                    break
+                except OSError as exc:
+                    if exc.errno not in (errno.EACCES, errno.EDEADLK):
+                        raise
+                    time.sleep(0.05)
+            try:
+                yield
+            finally:
+                lock_file.seek(0)
+                msvcrt.locking(lock_file.fileno(), msvcrt.LK_UNLCK, 1)
+        else:
+            import fcntl
+
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+
+
+def save_candidate_progress(case_id, candidate, fitness, *, replace_if=None, **metadata):
     path = solution_path(case_id)
     path.parent.mkdir(parents=True, exist_ok=True)
-    fields = {}
-    if path.exists():
-        with np.load(path, allow_pickle=False) as saved:
-            fields = {key: np.asarray(saved[key]).copy() for key in saved.files}
-    fields["case_id"] = np.asarray(case_id)
-    fields["x"] = np.asarray(candidate, dtype=np.float64)
-    fields["fitness"] = np.asarray(float(fitness))
-    if "observation_scores" not in metadata:
-        fields.pop("observation_scores", None)
-    fields.update(
-        {key: np.asarray(value) for key, value in metadata.items()}
-    )
+    candidate = np.asarray(candidate, dtype=np.float64)
+    fitness = float(fitness)
+    if not np.isfinite(candidate).all() or not np.isfinite(fitness):
+        raise ValueError("Candidate and fitness must be finite.")
 
-    temporary_path = path.with_name(
-        f"{path.stem}.{os.getpid()}.tmp.npz"
-    )
-    try:
-        np.savez_compressed(temporary_path, **fields)
-        temporary_path.replace(path)
-    finally:
-        if temporary_path.exists():
-            temporary_path.unlink()
+    with _lock_candidate(path):
+        fields = {}
+        if path.exists():
+            with np.load(path, allow_pickle=False) as saved:
+                fields = {
+                    key: np.asarray(saved[key]).copy() for key in saved.files
+                }
+            if "fitness" in fields:
+                saved_fitness = float(fields["fitness"])
+                if (
+                    np.isfinite(saved_fitness)
+                    and saved_fitness <= fitness
+                    and (replace_if is None or not replace_if(fields))
+                ):
+                    return path
+
+        fields["case_id"] = np.asarray(case_id)
+        fields["x"] = candidate
+        fields["fitness"] = np.asarray(fitness)
+        if "observation_scores" not in metadata:
+            fields.pop("observation_scores", None)
+        fields.update(
+            {key: np.asarray(value) for key, value in metadata.items()}
+        )
+
+        temporary_path = path.with_name(
+            f"{path.stem}.{os.getpid()}.tmp.npz"
+        )
+        try:
+            np.savez_compressed(temporary_path, **fields)
+            temporary_path.replace(path)
+        finally:
+            if temporary_path.exists():
+                temporary_path.unlink()
     return path
 
 

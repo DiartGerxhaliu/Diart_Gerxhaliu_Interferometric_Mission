@@ -75,6 +75,8 @@ np.savez_compressed(
 )
 """
 
+DE_NEUTRAL_ACCEPTANCE = 0.2
+
 
 def parse_args():
     parser = argparse.ArgumentParser(description=__doc__)
@@ -149,6 +151,17 @@ def random_candidates(count, lower, upper, n_sat, velocity_bound, rng):
     return candidates
 
 
+def sample_orbital_perturbations(count, n_sat, mutation_map, rng):
+    """Scale each satellite's six-state perturbation by orbital sensitivity."""
+    mutation_map = np.asarray(mutation_map, dtype=np.float64)
+    if mutation_map.shape != (6, 6):
+        raise ValueError(
+            f"Mutation map must have shape (6, 6), got {mutation_map.shape}."
+        )
+    noise = rng.normal(size=(count, n_sat, 6))
+    return np.einsum("bnj,ij->bni", noise, mutation_map)
+
+
 def canonicalize_candidates(candidates, n_sat):
     """Sort interchangeable satellites by their initial x position.
 
@@ -193,8 +206,9 @@ def mutate_candidates(
     cell_steps = np.exp(
         rng.uniform(np.log(0.35), np.log(8.0), size=count)
     ) * np.clip(temperature, 0.15, 2.0) * step_multiplier
-    noise = rng.normal(size=(count, n_sat, 6))
-    scaled_noise = np.einsum("bnj,ij->bni", noise, mutation_map)
+    scaled_noise = sample_orbital_perturbations(
+        count, n_sat, mutation_map, rng
+    )
     genes += scaled_noise * cell_steps[:, None, None] * changed[..., None]
 
     # Occasionally replace one satellite state to create a genuinely new branch.
@@ -287,6 +301,31 @@ def select_population(candidates, fitnesses, population_size, rng):
     return candidates[selected].copy(), fitnesses[selected].copy()
 
 
+def sample_de_indices(count, population_size, rng):
+    """Draw four distinct population indices per trial without sorting the pool."""
+    if population_size < 4:
+        raise ValueError("Differential evolution requires population-size >= 4.")
+    if count < 0:
+        raise ValueError("Trial count must be non-negative.")
+
+    indices = rng.integers(population_size, size=(count, 4))
+    while count:
+        duplicate_rows = (
+            (indices[:, 0] == indices[:, 1])
+            | (indices[:, 0] == indices[:, 2])
+            | (indices[:, 0] == indices[:, 3])
+            | (indices[:, 1] == indices[:, 2])
+            | (indices[:, 1] == indices[:, 3])
+            | (indices[:, 2] == indices[:, 3])
+        )
+        if not np.any(duplicate_rows):
+            break
+        indices[duplicate_rows] = rng.integers(
+            population_size, size=(int(duplicate_rows.sum()), 4)
+        )
+    return indices.T
+
+
 def make_de_offspring(
     population,
     count,
@@ -300,9 +339,9 @@ def make_de_offspring(
 ):
     """Generate diverse differential-evolution trials, crossing whole satellites."""
     population_size = len(population)
-    random_keys = rng.random((count, population_size))
-    indices = np.argsort(random_keys, axis=1)[:, :4]
-    targets, first, second, third = indices.T
+    targets, first, second, third = sample_de_indices(
+        count, population_size, rng
+    )
 
     factors = rng.uniform(0.35, 1.25, size=count) * step_multiplier
     mutant = population[first] + factors[:, None] * (
@@ -344,6 +383,45 @@ def make_de_offspring(
     return trials, targets, immigrant_rows
 
 
+def update_de_population(
+    population,
+    population_fitness,
+    children,
+    child_fitness,
+    target_indices,
+    rng,
+    neutral_acceptance=DE_NEUTRAL_ACCEPTANCE,
+):
+    """Keep the best trial per target, including occasional neutral moves."""
+    novel = np.any(children != population[target_indices], axis=1)
+    order = np.lexsort(
+        (rng.random(len(child_fitness)), ~novel, child_fitness, target_indices)
+    )
+    ordered_targets = target_indices[order]
+    best_rows = order[
+        np.concatenate(
+            (
+                np.asarray([0]),
+                np.flatnonzero(ordered_targets[1:] != ordered_targets[:-1]) + 1,
+            )
+        )
+    ]
+    best_targets = target_indices[best_rows]
+    best_fitness = child_fitness[best_rows]
+    target_fitness = population_fitness[best_targets]
+    improving = best_fitness < target_fitness
+    neutral = (
+        (best_fitness == target_fitness)
+        & novel[best_rows]
+        & (rng.random(len(best_rows)) < neutral_acceptance)
+    )
+    accepted = improving | neutral
+    accepted_targets = best_targets[accepted]
+    accepted_rows = best_rows[accepted]
+    population[accepted_targets] = children[accepted_rows]
+    population_fitness[accepted_targets] = child_fitness[accepted_rows]
+
+
 def adapt_de_step_multiplier(step_multiplier, success_rate):
     """Adjust DE's differential scale to keep trial acceptance near 10-20%."""
     if success_rate < 0.1:
@@ -351,6 +429,23 @@ def adapt_de_step_multiplier(step_multiplier, success_rate):
     if success_rate > 0.2:
         return max(0.1, step_multiplier * 0.8)
     return step_multiplier
+
+
+def parent_improvement_rate(
+    child_fitness, parent_fitness, excluded_rows=(), neutral_acceptance=0.0
+):
+    """Estimate accepted-trial rate, including optional neutral drift."""
+    child_fitness = np.asarray(child_fitness)
+    parent_fitness = np.asarray(parent_fitness)
+    if child_fitness.shape != parent_fitness.shape:
+        raise ValueError("Child and parent fitness arrays must have matching shapes.")
+    eligible = np.ones(len(child_fitness), dtype=bool)
+    eligible[np.asarray(excluded_rows, dtype=np.int64)] = False
+    if not np.any(eligible):
+        return 0.0
+    improving = child_fitness[eligible] < parent_fitness[eligible]
+    neutral = child_fitness[eligible] == parent_fitness[eligible]
+    return float(np.mean(improving + neutral_acceptance * neutral))
 
 
 def make_block_proposals(
@@ -392,8 +487,9 @@ def make_block_proposals(
 
     steps = np.exp(rng.uniform(np.log(0.1), np.log(12.0), size=count))
     steps *= np.sqrt(np.clip(temperature / 0.12, 0.08, 1.5))
-    noise = rng.normal(size=(count, n_sat, 6))
-    scaled_noise = np.einsum("bnj,ij->bni", noise, mutation_map)
+    scaled_noise = sample_orbital_perturbations(
+        count, n_sat, mutation_map, rng
+    )
     genes += scaled_noise * steps[:, None, None] * changed[..., None]
 
     # Replace one selected satellite with a donor's whole six-dimensional state.
@@ -419,6 +515,12 @@ def main():
         )
     if args.velocity_bound <= 0 or args.temperature <= 0:
         raise ValueError("velocity-bound and temperature must be positive.")
+    if args.algorithm == "de" and args.population_size < 4:
+        raise ValueError("Differential evolution requires population-size >= 4.")
+    if args.iterations <= args.population_size:
+        raise ValueError(
+            "iterations must exceed population-size to include initialization."
+        )
     if args.rng_jump < 0:
         raise ValueError("rng-jump must be non-negative.")
 
@@ -521,7 +623,7 @@ def main():
         population = canonicalize_candidates(population, n_sat)
         population_fitness = score_batch(population)
         best_found_at = 0
-        scored = len(population)
+        scored = len(population) + 1
         stagnant_generations = 0
         step_multiplier = 1.0
 
@@ -623,10 +725,14 @@ def main():
             child_fitness = score_batch(children)
             scored += batch_size
 
-            eligible = np.ones(batch_size, dtype=bool)
-            eligible[immigrant_rows] = False
-            success_rate = float(
-                np.mean(child_fitness[eligible] < parent_fitness[eligible])
+            neutral_acceptance = (
+                DE_NEUTRAL_ACCEPTANCE if args.algorithm == "de" else 0.0
+            )
+            success_rate = parent_improvement_rate(
+                child_fitness,
+                parent_fitness,
+                immigrant_rows,
+                neutral_acceptance,
             )
 
             child_best = int(np.argmin(child_fitness))
@@ -662,14 +768,14 @@ def main():
                 )
 
             if args.algorithm == "de":
-                for target in np.unique(target_indices):
-                    trial_rows = np.flatnonzero(target_indices == target)
-                    candidate_row = trial_rows[
-                        np.argmin(child_fitness[trial_rows])
-                    ]
-                    if child_fitness[candidate_row] < population_fitness[target]:
-                        population[target] = children[candidate_row]
-                        population_fitness[target] = child_fitness[candidate_row]
+                update_de_population(
+                    population,
+                    population_fitness,
+                    children,
+                    child_fitness,
+                    target_indices,
+                    rng,
+                )
             elif args.algorithm == "block-anneal":
                 deltas = child_fitness - parent_fitness
                 acceptance = np.ones(batch_size, dtype=bool)
@@ -689,8 +795,14 @@ def main():
                     combined_x, combined_fitness, args.population_size, rng
                 )
 
-            if stagnant_generations >= args.restart_after:
-                refresh_count = max(1, args.population_size // 2)
+            if (
+                stagnant_generations >= args.restart_after
+                and scored < args.iterations
+            ):
+                refresh_count = min(
+                    max(1, args.population_size // 2),
+                    args.iterations - scored,
+                )
                 refreshed = random_candidates(
                     refresh_count,
                     search_lower,
@@ -792,23 +904,26 @@ def main():
         raise RuntimeError(f"Best {case_id} candidate violates observation bounds.")
 
     save_metadata = {
-        "x": best_x,
-        "fitness": cpu_fitness,
         "initial_fitness": initial_fitness,
         "best_found_at": best_found_at,
         "seed": args.seed,
-        "iterations": args.iterations,
+        "iterations": scored,
         "batch_size": args.batch_size,
         "population_size": args.population_size,
         "velocity_bound": args.velocity_bound,
         "restart_after": args.restart_after,
         "temperature": args.temperature,
         "objective": "min",
-        "case_id": case_id,
     }
     if observation_values is not None:
         save_metadata["observation_scores"] = observation_values
-    np.savez_compressed(best_path, **save_metadata)
+    save_candidate_progress(
+        case_id,
+        best_x,
+        cpu_fitness,
+        algorithm=args.algorithm,
+        **save_metadata,
+    )
 
     if not args.skip_cpu_verification:
         print("CPU verification difference:", difference)

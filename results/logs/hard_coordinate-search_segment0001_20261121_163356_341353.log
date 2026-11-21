@@ -1,0 +1,15 @@
+Started: 2026-11-21T16:33:56+01:00
+Segment: 1; case: hard; algorithm: coordinate-search
+Starting best candidate/checkpoint: -1.18441403926
+
+Traceback (most recent call last):
+  File "<frozen runpy>", line 189, in _run_module_as_main
+  File "<frozen runpy>", line 159, in _get_module_details
+  File "<frozen importlib._bootstrap_external>", line 1074, in get_code
+  File "<frozen importlib._bootstrap_external>", line 1004, in source_to_code
+  File "<frozen importlib._bootstrap>", line 241, in _call_with_frames_removed
+  File "C:\Users\User\Desktop\Fakultet\DAA\Diart_Gerxhaliu_Interferometric_Mission\benchmarks\run_coordinate_search.py", line 279
+    else:
+IndentationError: unexpected indent
+
+Search exited with code 1.

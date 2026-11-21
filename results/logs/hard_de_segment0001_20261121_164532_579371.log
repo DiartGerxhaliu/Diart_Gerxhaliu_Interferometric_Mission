@@ -1,0 +1,22 @@
+Started: 2026-11-21T16:45:32+01:00
+Segment: 1; case: hard; algorithm: de
+Starting best candidate/checkpoint: -1.41046995836
+
+Continuing RNG stream from: C:\Users\User\Desktop\Fakultet\DAA\Diart_Gerxhaliu_Interferometric_Mission\results\cases\hard_optimizer_rng.npz
+Seeding from saved best: results\cases\hard_min_best.npz
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "C:\Users\User\Desktop\Fakultet\DAA\Diart_Gerxhaliu_Interferometric_Mission\benchmarks\run_optimization.py", line 877, in <module>
+    main()
+  File "C:\Users\User\Desktop\Fakultet\DAA\Diart_Gerxhaliu_Interferometric_Mission\benchmarks\run_optimization.py", line 542, in main
+    population[:warm_count] = mutate_candidates(
+                              ^^^^^^^^^^^^^^^^^^
+  File "C:\Users\User\Desktop\Fakultet\DAA\Diart_Gerxhaliu_Interferometric_Mission\benchmarks\run_optimization.py", line 206, in mutate_candidates
+    scaled_noise = sample_orbital_perturbations(
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\User\Desktop\Fakultet\DAA\Diart_Gerxhaliu_Interferometric_Mission\benchmarks\run_optimization.py", line 156, in sample_orbital_perturbations
+    raise ValueError("Mutation map must have shape (6*n_sat, observation_axes).")
+ValueError: Mutation map must have shape (6*n_sat, observation_axes).
+
+Search exited with code 1.

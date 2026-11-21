@@ -1,0 +1,42 @@
+Started: 2026-11-21T16:18:02+01:00
+Segment: 2; case: hard; algorithm: coordinate-search
+Starting best candidate/checkpoint: -1.40690065437
+
+Resuming after 24,931,072 evaluations; best -0.990481856038; seed 239817
+progress 51,202/10,000,000; best -0.990481856038; boundary moves per proposal 20
+Randomized 10/40 satellite states at evaluation 25,000,000; saved best remains -0.990481856038
+evaluation 25,018,432: best -1.00713860797
+evaluation 25,020,480: best -1.01903628792
+evaluation 25,022,528: best -1.02855443189
+evaluation 25,024,576: best -1.03807257585
+evaluation 25,026,624: best -1.04402141582
+evaluation 25,028,672: best -1.04759071981
+evaluation 25,030,720: best -1.05234979179
+evaluation 25,032,768: best -1.05710886377
+evaluation 25,034,816: best -1.06067816776
+progress 103,744/10,000,000; best -1.06067816776; boundary moves per proposal 1
+evaluation 25,036,864: best -1.06305770375
+evaluation 25,038,912: best -1.06781677573
+evaluation 25,040,960: best -1.07257584771
+evaluation 25,043,008: best -1.0761451517
+evaluation 25,045,056: best -1.08090422368
+evaluation 25,047,104: best -1.08209399167
+evaluation 25,049,152: best -1.08923259964
+evaluation 25,051,200: best -1.09280190363
+evaluation 25,053,248: best -1.09637120761
+evaluation 25,055,296: best -1.09637120761
+evaluation 25,061,440: best -1.0999405116
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "C:\Users\User\Desktop\Fakultet\DAA\Diart_Gerxhaliu_Interferometric_Mission\benchmarks\run_coordinate_search.py", line 568, in <module>
+    main()
+  File "C:\Users\User\Desktop\Fakultet\DAA\Diart_Gerxhaliu_Interferometric_Mission\benchmarks\run_coordinate_search.py", line 459, in main
+    save_candidate_progress(
+  File "C:\Users\User\Desktop\Fakultet\DAA\Diart_Gerxhaliu_Interferometric_Mission\benchmarks\build_submission.py", line 112, in save_candidate_progress
+    temporary_path.replace(path)
+  File "C:\Users\User\miniforge3\envs\esa_official_311\Lib\pathlib.py", line 1188, in replace
+    os.replace(self, target)
+PermissionError: [WinError 5] Access is denied: 'results\\cases\\hard_min_best.14292.tmp.npz' -> 'results\\cases\\hard_min_best.npz'
+
+Search exited with code 1.
