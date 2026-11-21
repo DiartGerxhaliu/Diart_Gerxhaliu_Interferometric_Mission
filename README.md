@@ -48,21 +48,28 @@ Recommended starting algorithms; run one GPU search at a time:
 & $python -u main.py --hard --algorithm de
 ```
 
+To run LM-CMA-ES directly:
+
+```powershell
+& $python -u main.py --hard --algorithm lm-cma-es
+```
+
 Run the focused regression tests with:
 
 ```powershell
-& $python -m unittest benchmarks.test_population_algorithms benchmarks.test_main_algorithm_selection benchmarks.test_coordinate_search_restart benchmarks.test_candidate_save
+& $python -m unittest benchmarks.test_population_algorithms benchmarks.test_lm_cma_es benchmarks.test_main_algorithm_selection benchmarks.test_coordinate_search_restart benchmarks.test_candidate_save
 ```
 
 ### Algorithms
 
 | Option | Behavior |
 |---|---|
-| `auto` (default) | Rotates through all four methods after every 5 million evaluations, regardless of improvement. Easy starts with coordinate search; medium and hard start with DE. |
-| `coordinate-search` | Proposes changes that cross projected grid-cell boundaries. |
-| `de` | Differential evolution with whole-satellite crossover, adaptive scale, neutral moves across score plateaus, and population refreshes. |
-| `genetic` | Rank-based selection, whole-satellite crossover, and mutation. |
-| `block-anneal` | Proposes satellite-state changes and accepts some worse candidates to explore. |
+| `auto` (default) | Rotates through all five methods after every 5 million evaluations, regardless of improvement. Easy starts with coordinate search; medium and hard start with DE. |
+| `coordinate-search` | Proposes changes that cross projected grid-cell boundaries and samples single-satellite moves across the available satellites. |
+| `de` | Differential evolution with whole-satellite crossover, bounded adaptive scale, neutral moves across score plateaus, and population refreshes. |
+| `genetic` | Rank-based selection with randomized equal-score ties, whole-satellite crossover, and bounded mutation. |
+| `block-anneal` | Proposes satellite-state changes and accepts worse candidates using a separate, cooler annealing schedule. |
+| `lm-cma-es` | Limited-memory covariance adaptation in normalized coordinates; restarts at several scales after extended stagnation. |
 
 The standalone random-search utility is not a `main.py --algorithm` option; run it with `& $python -m benchmarks.run_random_search --case hard --evaluations 10000000`.
 
@@ -72,11 +79,11 @@ The standalone random-search utility is not a `main.py --algorithm` option; run 
 |---|---|---|
 | Easy | `coordinate-search` | Only five satellites; direct grid-boundary moves target this discrete objective. This is a structure-based recommendation, not a controlled comparison. |
 | Medium | `de` | DE produced the current saved best (`-1.80785246877`); coordinate search's recorded medium run plateaued at a weaker score. |
-| Hard | `de` | The current saved hard candidate came from DE. Keep `auto` if you want it to try coordinate search, genetic, and block annealing after a segment stalls. |
+| Hard | `de` | The current saved hard candidate came from DE. Keep `auto` if you want it to cycle through the other methods, including LM-CMA-ES. |
 
-These are practical starting choices, not guarantees; the recorded searches were not equal-budget head-to-head trials. In auto mode, each method gets a 5-million-evaluation segment, then the launcher rotates to the next method whether or not the score improved. Easy starts with coordinate search; medium and hard start with DE. Explicit coordinate-search segments use 10 million evaluations; other explicit population-search segments use 2 million, except explicitly selected hard DE, which uses 10 million. Explicitly selecting one algorithm disables switching; for example, `--hard --algorithm de` continues DE rather than switching methods.
+These are practical starting choices, not guarantees; the recorded searches were not equal-budget head-to-head trials. In auto mode, each method gets a 5-million-evaluation segment, then the launcher rotates to the next method whether or not the score improved. Easy starts with coordinate search; medium and hard start with DE. Explicit coordinate-search segments use 10 million evaluations; other explicit population-search segments use 2 million, except explicitly selected hard DE, which uses 10 million. LM-CMA-ES uses `max(4, 4 + floor(3*ln(6*n_sat)))` offspring by default. Explicitly selecting one algorithm disables switching; for example, `--hard --algorithm de` continues DE rather than switching methods.
 
-Hard DE defaults to a population of 4096; other population searches default to 256. Useful options include `--batch-size`, `--population-size`, `--seed`, `--velocity-bound`, `--restart-after`, and `--temperature`. Run `& $python main.py --help` for the current CLI options. The launcher does not accept `--iterations`; direct optimizer modules do.
+Hard DE defaults to a population of 4096; LM-CMA-ES uses a dimension-scaled default, and other population searches default to 256. Useful options include `--batch-size`, `--population-size`, `--seed`, `--velocity-bound`, `--restart-after`, `--temperature` (genetic selection), and `--anneal-temperature` (coordinate/block annealing; default `0.005`). Run `& $python main.py --help` for the current CLI options. The launcher does not accept `--iterations`; direct optimizer modules do.
 
 Coordinate search randomizes a partial restart only after 1,000,000 evaluations without a new best, independently of auto's 5-million-evaluation algorithm rotation. It randomly chooses 1 to 25% of the satellite states (1 to 10 for a 40-satellite case), then enforces the observation bounds. A new best resets the stagnation counter, and the saved best is retained unless a feasible candidate scores better.
 

@@ -12,6 +12,11 @@ from types import SimpleNamespace
 import numpy as np
 
 from benchmarks.build_submission import save_candidate_progress
+from benchmarks.lm_cma_es import (
+    LimitedMemoryCMAES,
+    default_population_size,
+    reflect_to_unit_box,
+)
 from src.evaluation.cases import CASE_ORDER, get_case
 from src.evaluation.constraints import (
     enforce_observation_bounds,
@@ -83,12 +88,17 @@ def parse_args():
     parser.add_argument("--case", choices=CASE_ORDER, default="hard")
     parser.add_argument("--iterations", type=int, default=2_000_000)
     parser.add_argument("--batch-size", type=int, default=2048)
-    parser.add_argument("--population-size", type=int, default=256)
+    parser.add_argument(
+        "--population-size",
+        type=int,
+        default=None,
+        help="population size (default: dimension-scaled for LM-CMA-ES, otherwise 256)",
+    )
     parser.add_argument(
         "--algorithm",
-        choices=("de", "genetic", "block-anneal"),
+        choices=("de", "genetic", "block-anneal", "lm-cma-es"),
         default="de",
-        help="GPU-batched differential evolution, genetic baseline, or block annealing",
+        help="GPU-batched differential evolution, genetic, block annealing, or LM-CMA-ES",
     )
     parser.add_argument("--seed", type=int, default=43)
     parser.add_argument(
@@ -120,13 +130,22 @@ def parse_args():
         "--restart-after",
         type=int,
         default=100,
-        help="generations without improvement before refreshing the weaker half",
+        help=(
+            "stagnation generations before population refresh; LM-CMA-ES uses "
+            "the equivalent evaluation budget"
+        ),
     )
     parser.add_argument(
         "--temperature",
         type=float,
         default=0.35,
-        help="parent-selection spread; larger values preserve more population diversity",
+        help="parent-selection spread for genetic search",
+    )
+    parser.add_argument(
+        "--anneal-temperature",
+        type=float,
+        default=0.005,
+        help="base temperature for block annealing",
     )
     parser.add_argument(
         "--skip-cpu-verification",
@@ -241,7 +260,7 @@ def make_offspring(
 ):
     """Breed a batch using rank selection, satellite-level crossover and mutation."""
     population_size = len(population)
-    rank_order = np.argsort(fitnesses, kind="stable")
+    rank_order = rank_fitnesses(fitnesses, rng)
     rank_weights = np.exp(
         -np.arange(population_size)
         / max(1.0, population_size * np.clip(temperature, 0.05, 2.0))
@@ -282,8 +301,7 @@ def make_offspring(
 
 def select_population(candidates, fitnesses, population_size, rng):
     """Keep strong elites plus weighted near-best candidates for diversity."""
-    tie_break = rng.random(len(fitnesses)) * 1e-10
-    order = np.lexsort((tie_break, fitnesses))
+    order = rank_fitnesses(fitnesses, rng)
     elite_count = max(1, population_size // 2)
     elites = order[:elite_count]
 
@@ -299,6 +317,12 @@ def select_population(candidates, fitnesses, population_size, rng):
     else:
         selected = order[:population_size]
     return candidates[selected].copy(), fitnesses[selected].copy()
+
+
+def rank_fitnesses(fitnesses, rng):
+    """Sort by score while randomizing equal-score ties on quantized objectives."""
+    fitnesses = np.asarray(fitnesses)
+    return np.lexsort((rng.random(len(fitnesses)), fitnesses))
 
 
 def sample_de_indices(count, population_size, rng):
@@ -423,12 +447,27 @@ def update_de_population(
 
 
 def adapt_de_step_multiplier(step_multiplier, success_rate):
-    """Adjust DE's differential scale to keep trial acceptance near 10-20%."""
+    """Adjust DE's scale conservatively so plateau ties do not cause blowups."""
     if success_rate < 0.1:
-        return min(8.0, step_multiplier * 1.2)
+        return min(2.0, step_multiplier * 1.03)
     if success_rate > 0.2:
-        return max(0.1, step_multiplier * 0.8)
+        return max(0.25, step_multiplier * 0.9)
     return step_multiplier
+
+
+def adapt_genetic_step_multiplier(step_multiplier, success_rate):
+    """Change genetic mutation scale slowly while preserving useful local moves."""
+    if success_rate > 0.02:
+        return max(0.5, step_multiplier * 0.97)
+    return min(2.0, step_multiplier * np.exp(0.005))
+
+
+def block_annealing_temperature(base_temperature, generation, restart_after):
+    """Use a cyclic cooling schedule whose scale is separate from genetic selection."""
+    cycle_length = max(40, restart_after * 4)
+    cycle_position = (generation - 1) % cycle_length
+    cycle_fraction = cycle_position / cycle_length
+    return base_temperature * (0.05 + 0.95 * (1.0 - cycle_fraction) ** 2)
 
 
 def parent_improvement_rate(
@@ -504,6 +543,12 @@ def make_block_proposals(
 
 def main():
     args = parse_args()
+    if args.population_size is None:
+        if args.algorithm == "lm-cma-es":
+            dimension = 6 * get_case(args.case)["n_sat"]
+            args.population_size = default_population_size(dimension)
+        else:
+            args.population_size = 256
     if min(
         args.iterations,
         args.batch_size,
@@ -513,10 +558,18 @@ def main():
         raise ValueError(
             "iterations, batch-size, population-size, and restart-after must be positive."
         )
-    if args.velocity_bound <= 0 or args.temperature <= 0:
-        raise ValueError("velocity-bound and temperature must be positive.")
-    if args.algorithm == "de" and args.population_size < 4:
-        raise ValueError("Differential evolution requires population-size >= 4.")
+    if (
+        args.velocity_bound <= 0
+        or args.temperature <= 0
+        or args.anneal_temperature <= 0
+    ):
+        raise ValueError(
+            "velocity-bound, temperature, and anneal-temperature must be positive."
+        )
+    if args.algorithm in ("de", "lm-cma-es") and args.population_size < 4:
+        raise ValueError(
+            f"{args.algorithm} requires population-size >= 4."
+        )
     if args.iterations <= args.population_size:
         raise ValueError(
             "iterations must exceed population-size to include initialization."
@@ -584,6 +637,24 @@ def main():
             candidates[...] = canonicalize_candidates(candidates, n_sat)
             return gpu_fitness_batch(candidates, reference).detach().cpu().numpy()
 
+        def score_cma_batch(candidates):
+            scores = []
+            for start in range(0, len(candidates), args.batch_size):
+                batch = candidates[start : start + args.batch_size]
+                enforce_observation_bounds(batch, position_maps, n_sat)
+                scores.append(
+                    gpu_fitness_batch(batch, reference).detach().cpu().numpy()
+                )
+            return np.concatenate(scores)
+
+        coordinate_width = search_upper - search_lower
+
+        def normalize_candidates(candidates):
+            return 2.0 * (candidates - search_lower) / coordinate_width - 1.0
+
+        def denormalize_candidates(candidates):
+            return search_lower + (candidates + 1.0) * coordinate_width / 2.0
+
         if best_path.exists():
             with np.load(best_path) as saved:
                 best_x = np.asarray(saved["x"], dtype=np.float64)
@@ -598,33 +669,56 @@ def main():
             best_fitness = float(score_batch(best_x)[0])
 
         initial_fitness = best_fitness
-        population = random_candidates(
-            args.population_size,
-            search_lower,
-            search_upper,
-            n_sat,
-            args.velocity_bound,
-            rng,
-        )
-        population = canonicalize_candidates(population, n_sat)
+        if args.algorithm == "lm-cma-es":
+            cma_strategy = LimitedMemoryCMAES(
+                normalize_candidates(best_x), args.population_size
+            )
+            initial_z, initial_directions = cma_strategy.ask(
+                args.population_size, rng
+            )
+            initial_normalized = reflect_to_unit_box(
+                cma_strategy.mean
+                + cma_strategy.sigma * initial_directions
+            )
+            population = denormalize_candidates(initial_normalized)
+            population_fitness = score_cma_batch(population)
+            feasible_normalized = normalize_candidates(population)
+            effective_directions = (
+                feasible_normalized - cma_strategy.mean
+            ) / cma_strategy.sigma
+            cma_strategy.tell(
+                initial_z, effective_directions, population_fitness, rng
+            )
+        else:
+            population = random_candidates(
+                args.population_size,
+                search_lower,
+                search_upper,
+                n_sat,
+                args.velocity_bound,
+                rng,
+            )
+            population = canonicalize_candidates(population, n_sat)
 
-        warm_count = max(1, args.population_size // 3)
-        warm_parents = np.repeat(best_x[None, :], warm_count, axis=0)
-        population[:warm_count] = mutate_candidates(
-            warm_parents,
-            search_lower,
-            search_upper,
-            n_sat,
-            mutation_map,
-            rng,
-            temperature=1.0,
-        )
-        population[0] = best_x
-        population = canonicalize_candidates(population, n_sat)
-        population_fitness = score_batch(population)
+            warm_count = max(1, args.population_size // 3)
+            warm_parents = np.repeat(best_x[None, :], warm_count, axis=0)
+            population[:warm_count] = mutate_candidates(
+                warm_parents,
+                search_lower,
+                search_upper,
+                n_sat,
+                mutation_map,
+                rng,
+                temperature=1.0,
+            )
+            population[0] = best_x
+            population = canonicalize_candidates(population, n_sat)
+            population_fitness = score_batch(population)
         best_found_at = 0
         scored = len(population) + 1
         stagnant_generations = 0
+        stagnant_evaluations = 0
+        cma_restart_count = 0
         step_multiplier = 1.0
 
         improved = int(np.argmin(population_fitness))
@@ -676,6 +770,21 @@ def main():
                     best_x,
                 )
                 parent_fitness = population_fitness[target_indices]
+            elif args.algorithm == "lm-cma-es":
+                batch_size = min(args.population_size, args.iterations - scored)
+                lm_z, lm_directions = cma_strategy.ask(batch_size, rng)
+                normalized = reflect_to_unit_box(
+                    cma_strategy.mean + cma_strategy.sigma * lm_directions
+                )
+                children = denormalize_candidates(normalized)
+                child_fitness = score_cma_batch(children)
+                feasible_normalized = normalize_candidates(children)
+                effective_lm_directions = (
+                    feasible_normalized - cma_strategy.mean
+                ) / cma_strategy.sigma
+                parent_fitness = np.empty(batch_size, dtype=np.float64)
+                immigrant_rows = np.empty(0, dtype=np.int64)
+                target_indices = None
             elif args.algorithm == "block-anneal":
                 # One proposal per walker per generation keeps the Metropolis
                 # accept/reject step unambiguous and avoids overwriting a
@@ -687,11 +796,10 @@ def main():
                 donor_indices = rng.integers(
                     0, args.population_size, size=batch_size
                 )
-                cycle_length = max(40, args.restart_after * 4)
-                cycle_position = (generation - 1) % cycle_length
-                cycle_fraction = cycle_position / cycle_length
-                current_temperature = args.temperature * (
-                    0.05 + 0.95 * (1.0 - cycle_fraction) ** 2
+                current_temperature = block_annealing_temperature(
+                    args.anneal_temperature,
+                    generation,
+                    args.restart_after,
                 )
                 children = make_block_proposals(
                     population[target_indices],
@@ -722,18 +830,22 @@ def main():
                 target_indices = None
             if args.algorithm in ("de", "genetic", "block-anneal"):
                 children = canonicalize_candidates(children, n_sat)
-            child_fitness = score_batch(children)
+            if args.algorithm != "lm-cma-es":
+                child_fitness = score_batch(children)
             scored += batch_size
 
-            neutral_acceptance = (
-                DE_NEUTRAL_ACCEPTANCE if args.algorithm == "de" else 0.0
-            )
-            success_rate = parent_improvement_rate(
-                child_fitness,
-                parent_fitness,
-                immigrant_rows,
-                neutral_acceptance,
-            )
+            if args.algorithm in ("lm-cma-es", "block-anneal"):
+                success_rate = 0.0
+            else:
+                neutral_acceptance = (
+                    DE_NEUTRAL_ACCEPTANCE if args.algorithm == "de" else 0.0
+                )
+                success_rate = parent_improvement_rate(
+                    child_fitness,
+                    parent_fitness,
+                    immigrant_rows,
+                    neutral_acceptance,
+                )
 
             child_best = int(np.argmin(child_fitness))
             if child_fitness[child_best] < best_fitness:
@@ -741,7 +853,8 @@ def main():
                 best_fitness = float(child_fitness[child_best])
                 best_found_at = scored
                 stagnant_generations = 0
-                if args.algorithm != "de":
+                stagnant_evaluations = 0
+                if args.algorithm == "genetic":
                     step_multiplier = max(0.5, step_multiplier * 0.85)
                 save_candidate_progress(
                     case_id,
@@ -756,11 +869,11 @@ def main():
                 print(f"evaluation {scored:,}: best {best_fitness:.12g}", flush=True)
             else:
                 stagnant_generations += 1
-                if args.algorithm != "de":
-                    if success_rate > 0.02:
-                        step_multiplier = max(0.5, step_multiplier * 0.97)
-                    else:
-                        step_multiplier = min(8.0, step_multiplier * np.exp(0.02))
+                stagnant_evaluations += batch_size
+                if args.algorithm == "genetic":
+                    step_multiplier = adapt_genetic_step_multiplier(
+                        step_multiplier, success_rate
+                    )
 
             if args.algorithm == "de":
                 step_multiplier = adapt_de_step_multiplier(
@@ -794,8 +907,32 @@ def main():
                 population, population_fitness = select_population(
                     combined_x, combined_fitness, args.population_size, rng
                 )
+            elif args.algorithm == "lm-cma-es" and batch_size == args.population_size:
+                cma_strategy.tell(
+                    lm_z, effective_lm_directions, child_fitness, rng
+                )
 
-            if (
+            if args.algorithm == "lm-cma-es":
+                cma_restart_after = args.restart_after * args.batch_size
+                if (
+                    stagnant_evaluations >= cma_restart_after
+                    and scored < args.iterations
+                ):
+                    restart_sigmas = (0.15, 0.3, 0.6)
+                    restart_sigma = restart_sigmas[
+                        cma_restart_count % len(restart_sigmas)
+                    ]
+                    cma_strategy.restart(
+                        normalize_candidates(best_x), restart_sigma
+                    )
+                    cma_restart_count += 1
+                    stagnant_evaluations = 0
+                    print(
+                        f"LM-CMA-ES stagnation restart {cma_restart_count}; "
+                        f"sigma {restart_sigma:.3g}",
+                        flush=True,
+                    )
+            elif (
                 stagnant_generations >= args.restart_after
                 and scored < args.iterations
             ):
@@ -853,19 +990,34 @@ def main():
                         iterations=scored,
                         best_found_at=best_found_at,
                     )
-                    print(f"evaluation {scored:,}: best {best_fitness:.12g}", flush=True)
+                    print(
+                        f"evaluation {scored:,}: best {best_fitness:.12g}",
+                        flush=True,
+                    )
                 stagnant_generations = 0
+                if args.algorithm in ("de", "genetic"):
+                    step_multiplier = 1.0
 
             if generation % 25 == 0 or scored >= args.iterations:
-                print(
-                    f"progress {scored}/{args.iterations}; "
-                    f"best fitness {best_fitness:.12g}; "
-                    f"population best {population_fitness.min():.12g}; "
-                    + (
+                population_best = (
+                    best_fitness
+                    if args.algorithm == "lm-cma-es"
+                    else population_fitness.min()
+                )
+                progress_detail = (
+                    f"sigma {cma_strategy.sigma:.4g}"
+                    if args.algorithm == "lm-cma-es"
+                    else (
                         f"temperature {current_temperature:.4g}"
                         if args.algorithm == "block-anneal"
                         else f"mutation scale {step_multiplier:.3f}"
-                    ),
+                    )
+                )
+                print(
+                    f"progress {scored}/{args.iterations}; "
+                    f"best fitness {best_fitness:.12g}; "
+                    f"population best {population_best:.12g}; "
+                    f"{progress_detail}",
                     flush=True,
                 )
 

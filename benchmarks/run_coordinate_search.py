@@ -183,7 +183,11 @@ def propose_boundary_candidates(
             for state in actions[satellite]:
                 states[row, :, satellite] = state
                 row += 1
-        return candidates[:row]
+        candidates = candidates[:row]
+        if len(candidates) > count:
+            selected = rng.choice(len(candidates), size=count, replace=False)
+            return candidates[selected]
+        return candidates
 
     candidates = np.repeat(incumbent[None, :], count, axis=0)
     states = candidates.reshape(count, 6, n_sat)

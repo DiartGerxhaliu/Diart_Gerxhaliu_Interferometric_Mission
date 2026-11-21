@@ -11,6 +11,8 @@ from pathlib import Path
 import numpy as np
 
 from benchmarks.build_submission import VERIFY_SUBMISSION, submission_record
+from benchmarks.lm_cma_es import default_population_size
+from src.evaluation.cases import get_case
 
 
 ROOT = Path(__file__).resolve().parent
@@ -18,16 +20,40 @@ RESULTS_DIR = ROOT / "results"
 CASE_RESULTS_DIR = RESULTS_DIR / "cases"
 SUBMISSION_DIR = RESULTS_DIR / "submissions"
 LOG_DIR = RESULTS_DIR / "logs"
-ALGORITHMS = ("coordinate-search", "de", "genetic", "block-anneal")
+ALGORITHMS = (
+    "coordinate-search",
+    "de",
+    "genetic",
+    "block-anneal",
+    "lm-cma-es",
+)
 DEFAULT_ALGORITHMS = {
     "easy": "coordinate-search",
     "medium": "de",
     "hard": "de",
 }
 SEARCH_CYCLES = {
-    "easy": ("coordinate-search", "de", "genetic", "block-anneal"),
-    "medium": ("de", "coordinate-search", "genetic", "block-anneal"),
-    "hard": ("de", "coordinate-search", "genetic", "block-anneal"),
+    "easy": (
+        "coordinate-search",
+        "de",
+        "genetic",
+        "block-anneal",
+        "lm-cma-es",
+    ),
+    "medium": (
+        "de",
+        "coordinate-search",
+        "genetic",
+        "block-anneal",
+        "lm-cma-es",
+    ),
+    "hard": (
+        "de",
+        "coordinate-search",
+        "genetic",
+        "block-anneal",
+        "lm-cma-es",
+    ),
 }
 
 
@@ -60,13 +86,26 @@ def parse_args():
         "--population-size",
         type=int,
         default=None,
-        help="population size (hard-case DE defaults to 4096; otherwise 256)",
+        help=(
+            "population size (hard DE defaults to 4096; LM-CMA-ES uses a "
+            "dimension-scaled default; otherwise 256)"
+        ),
     )
     parser.add_argument("--velocity-bound", type=float, default=10.0)
     parser.add_argument("--restart-after", type=int, default=100)
-    parser.add_argument("--temperature", type=float, default=0.35)
+    parser.add_argument(
+        "--temperature",
+        type=float,
+        default=0.35,
+        help="genetic selection temperature",
+    )
     parser.add_argument("--checkpoint-every", type=int, default=25)
-    parser.add_argument("--anneal-temperature", type=float, default=0.005)
+    parser.add_argument(
+        "--anneal-temperature",
+        type=float,
+        default=0.005,
+        help="base temperature for coordinate and block annealing",
+    )
     parser.add_argument(
         "--resume-rng",
         type=Path,
@@ -134,11 +173,13 @@ def build_search_command(args, algorithm=None):
         raise ValueError("batch-size must be positive.")
     population_size = args.population_size
     if population_size is None:
-        population_size = (
-            4096
-            if args.case == "hard" and selected_algorithm == "de"
-            else 256
-        )
+        if args.case == "hard" and selected_algorithm == "de":
+            population_size = 4096
+        elif selected_algorithm == "lm-cma-es":
+            dimension = 6 * get_case(args.case)["n_sat"]
+            population_size = default_population_size(dimension)
+        else:
+            population_size = 256
 
     if coordinate_search:
         checkpoint = CASE_RESULTS_DIR / f"{args.case}_boundary_checkpoint.npz"
@@ -203,6 +244,8 @@ def build_search_command(args, algorithm=None):
             str(args.restart_after),
             "--temperature",
             str(args.temperature),
+            "--anneal-temperature",
+            str(args.anneal_temperature),
             "--skip-cpu-verification",
         ]
         if resume_rng.is_file():

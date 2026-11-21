@@ -3,11 +3,15 @@ import unittest
 import numpy as np
 
 from benchmarks.run_optimization import (
+    adapt_de_step_multiplier,
+    adapt_genetic_step_multiplier,
+    block_annealing_temperature,
     make_block_proposals,
     make_de_offspring,
     make_offspring,
     mutate_candidates,
     parent_improvement_rate,
+    rank_fitnesses,
     sample_de_indices,
     update_de_population,
 )
@@ -150,6 +154,35 @@ class PopulationAlgorithmTests(unittest.TestCase):
         )
 
         np.testing.assert_array_equal(population[0], children[0])
+
+    def test_equal_fitnesses_receive_randomized_genetic_ranks(self):
+        fitnesses = np.ones(32)
+        first = rank_fitnesses(fitnesses, np.random.default_rng(16))
+        second = rank_fitnesses(fitnesses, np.random.default_rng(17))
+
+        np.testing.assert_array_equal(np.sort(first), np.arange(len(fitnesses)))
+        self.assertFalse(np.array_equal(first, second))
+
+    def test_adaptive_mutation_scales_stay_bounded_on_plateaus(self):
+        de_scale = 1.0
+        genetic_scale = 1.0
+        for _ in range(500):
+            de_scale = adapt_de_step_multiplier(de_scale, 0.0)
+            genetic_scale = adapt_genetic_step_multiplier(genetic_scale, 0.0)
+        self.assertLessEqual(de_scale, 2.0)
+        self.assertLessEqual(genetic_scale, 2.0)
+
+        for _ in range(500):
+            de_scale = adapt_de_step_multiplier(de_scale, 1.0)
+            genetic_scale = adapt_genetic_step_multiplier(genetic_scale, 1.0)
+        self.assertGreaterEqual(de_scale, 0.25)
+        self.assertGreaterEqual(genetic_scale, 0.5)
+
+    def test_block_annealing_uses_its_own_cooling_temperature(self):
+        self.assertEqual(block_annealing_temperature(0.005, 1, 100), 0.005)
+        self.assertAlmostEqual(
+            block_annealing_temperature(0.005, 400, 100), 0.0002500296875
+        )
 
     def test_no_eligible_parent_trials_have_zero_improvement_rate(self):
         self.assertEqual(parent_improvement_rate([-2.0], [-1.0], [0]), 0.0)

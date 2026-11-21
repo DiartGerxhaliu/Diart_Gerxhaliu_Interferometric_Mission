@@ -1,0 +1,30 @@
+Started: 2026-11-21T18:34:09+01:00
+Segment: 2; case: hard; algorithm: lm-cma-es
+Starting best candidate/checkpoint: -1.48780487805
+
+Continuing RNG stream from: C:\Users\User\Desktop\Fakultet\DAA\Diart_Gerxhaliu_Interferometric_Mission\results\cases\hard_optimizer_rng.npz
+Seeding from saved best: results\cases\hard_min_best.npz
+Search: lm-cma-es | GPU-batched population
+Case: hard | ESA problem: large-observatory-in-halo
+Objective: minimize ESA reference fitness
+GPU: NVIDIA GeForce RTX 5070 Laptop GPU
+Population: 20 | Batch: 2048 | Velocity bound: 10.0 | Seed: 239817
+Starting fitness: -1.4878048780487805
+progress 521/2000000; best fitness -1.48780487805; population best -1.48780487805; sigma 0.1291
+progress 1021/2000000; best fitness -1.48780487805; population best -1.48780487805; sigma 0.1296
+progress 1521/2000000; best fitness -1.48780487805; population best -1.48780487805; sigma 0.1359
+progress 2021/2000000; best fitness -1.48780487805; population best -1.48780487805; sigma 0.1339
+progress 2521/2000000; best fitness -1.48780487805; population best -1.48780487805; sigma 0.1289
+progress 3021/2000000; best fitness -1.48780487805; population best -1.48780487805; sigma 0.1292
+progress 3521/2000000; best fitness -1.48780487805; population best -1.48780487805; sigma 0.143
+progress 4021/2000000; best fitness -1.48780487805; population best -1.48780487805; sigma 0.1401
+progress 4521/2000000; best fitness -1.48780487805; population best -1.48780487805; sigma 0.1543
+progress 5021/2000000; best fitness -1.48780487805; population best -1.48780487805; sigma 0.1502
+progress 5521/2000000; best fitness -1.48780487805; population best -1.48780487805; sigma 0.1685
+progress 6021/2000000; best fitness -1.48780487805; population best -1.48780487805; sigma 0.1713
+progress 6521/2000000; best fitness -1.48780487805; population best -1.48780487805; sigma 0.1601
+progress 7021/2000000; best fitness -1.48780487805; population best -1.48780487805; sigma 0.1946
+progress 7521/2000000; best fitness -1.48780487805; population best -1.48780487805; sigma 0.2055
+progress 8021/2000000; best fitness -1.48780487805; population best -1.48780487805; sigma 0.1993
+
+Interrupted by user before this segment completed.

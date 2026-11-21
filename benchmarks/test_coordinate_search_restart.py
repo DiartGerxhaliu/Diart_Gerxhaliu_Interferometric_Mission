@@ -1,4 +1,5 @@
 import unittest
+from unittest.mock import patch
 
 import numpy as np
 
@@ -6,6 +7,7 @@ from benchmarks.run_coordinate_search import (
     RANDOM_RESTART_EVERY,
     evaluations_until_random_restart,
     make_partial_random_restart_candidate,
+    propose_boundary_candidates,
 )
 
 
@@ -30,6 +32,37 @@ class CoordinateRestartTests(unittest.TestCase):
             np.any(candidate.reshape(6, n_sat) != 0, axis=0)
         )
         np.testing.assert_array_equal(np.sort(changed), np.sort(satellites))
+
+    def test_single_satellite_boundary_moves_are_sampled_across_their_actions(self):
+        n_sat = 4
+        actions = [
+            [np.full(6, satellite + 1.0)] for satellite in range(n_sat)
+        ]
+        rng = np.random.default_rng(42)
+        expected = np.sort(rng.choice(n_sat, size=2, replace=False))
+
+        with patch(
+            "benchmarks.run_coordinate_search.boundary_actions",
+            return_value=actions,
+        ):
+            candidates = propose_boundary_candidates(
+                np.zeros(6 * n_sat),
+                2,
+                n_sat,
+                -np.ones(6 * n_sat),
+                np.ones(6 * n_sat),
+                [np.eye(3)],
+                [np.eye(3)],
+                21,
+                1,
+                np.random.default_rng(42),
+            )
+
+        changed_satellites = np.flatnonzero(
+            np.any(candidates.reshape(2, 6, n_sat) != 0, axis=(0, 1))
+        )
+        self.assertEqual(len(candidates), 2)
+        np.testing.assert_array_equal(changed_satellites, expected)
 
 
 if __name__ == "__main__":

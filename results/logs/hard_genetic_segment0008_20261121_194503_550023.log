@@ -1,0 +1,37 @@
+Started: 2026-11-21T19:45:03+01:00
+Segment: 8; case: hard; algorithm: genetic
+Starting best candidate/checkpoint: -1.49613325402
+
+Continuing RNG stream from: C:\Users\User\Desktop\Fakultet\DAA\Diart_Gerxhaliu_Interferometric_Mission\results\cases\hard_optimizer_rng.npz
+Seeding from saved best: results\cases\hard_min_best.npz
+Search: genetic | GPU-batched population
+Case: hard | ESA problem: large-observatory-in-halo
+Objective: minimize ESA reference fitness
+GPU: NVIDIA GeForce RTX 5070 Laptop GPU
+Population: 256 | Batch: 2048 | Velocity bound: 10.0 | Seed: 239817
+Starting fitness: -1.496133254015467
+evaluation 49,409: best -1.49732302201
+progress 51457/5000000; best fitness -1.49732302201; population best -1.49732302201; mutation scale 0.925
+progress 102657/5000000; best fitness -1.49732302201; population best -1.49732302201; mutation scale 1.048
+progress 153857/5000000; best fitness -1.49732302201; population best -1.49732302201; mutation scale 1.188
+progress 205057/5000000; best fitness -1.49732302201; population best -1.49732302201; mutation scale 1.346
+progress 256385/5000000; best fitness -1.49732302201; population best -1.49732302201; mutation scale 1.005
+progress 307585/5000000; best fitness -1.49732302201; population best -1.49732302201; mutation scale 1.139
+progress 358785/5000000; best fitness -1.49732302201; population best -1.49732302201; mutation scale 1.290
+progress 409985/5000000; best fitness -1.49732302201; population best -1.49732302201; mutation scale 1.462
+progress 461313/5000000; best fitness -1.49732302201; population best -1.49732302201; mutation scale 1.005
+progress 512513/5000000; best fitness -1.49732302201; population best -1.49732302201; mutation scale 1.139
+progress 563713/5000000; best fitness -1.49732302201; population best -1.49732302201; mutation scale 1.290
+progress 614913/5000000; best fitness -1.49732302201; population best -1.49732302201; mutation scale 1.462
+evaluation 627,201: best -1.50208209399
+Target reached: -1.50208209399 <= -1.5
+CPU verification deferred to launcher.
+Final GPU fitness: -1.502082093991672
+Evaluations: 627201
+Elapsed seconds: 24.9
+Saved best: results\cases\hard_min_best.npz
+Final fitness: -1.502082093991672
+Saved RNG checkpoint: results\cases\hard_optimizer_rng.npz
+
+Run-local best (including starting candidate): -1.50208209399
+Improved saved best this run: yes
