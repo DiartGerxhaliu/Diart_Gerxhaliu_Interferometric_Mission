@@ -156,12 +156,12 @@ def parse_args():
 
 
 def random_candidates(count, lower, upper, n_sat, velocity_bound, rng):
-    """Draw bounded formations with a stratified spread of velocity magnitudes."""
+    """Draw bounded formations with broad coverage of velocity magnitudes."""
     candidates = rng.uniform(lower, upper, size=(count, lower.size))
     scales = rng.choice(
-        np.asarray([0.05, 0.1, 0.2, 0.4, 0.7, 1.0]),
+        np.asarray([0.1, 0.3, 0.5, 0.75, 1.0]),
         size=count,
-        p=[0.08, 0.14, 0.22, 0.24, 0.20, 0.12],
+        p=[0.10, 0.20, 0.20, 0.25, 0.25],
     )
     velocity_scales = velocity_bound * scales
     candidates[:, 3 * n_sat :] = rng.uniform(
@@ -215,7 +215,7 @@ def mutate_candidates(
     mutation_fractions = rng.choice(
         np.asarray([0.025, 0.05, 0.1, 0.2, 0.4, 0.75]),
         size=count,
-        p=[0.16, 0.19, 0.23, 0.20, 0.16, 0.06],
+        p=[0.08, 0.12, 0.16, 0.20, 0.24, 0.20],
     )
     changed = rng.random((count, n_sat)) < mutation_fractions[:, None]
     empty = np.flatnonzero(~changed.any(axis=1))
@@ -231,7 +231,7 @@ def mutate_candidates(
     genes += scaled_noise * cell_steps[:, None, None] * changed[..., None]
 
     # Occasionally replace one satellite state to create a genuinely new branch.
-    reset = rng.random((count, n_sat)) < 0.012
+    reset = rng.random((count, n_sat)) < 0.025
     reset_rows, reset_satellites = np.nonzero(reset)
     if reset_rows.size:
         reset_values = random_candidates(
@@ -275,7 +275,7 @@ def make_offspring(
     crossover_rates = rng.choice(
         np.asarray([0.05, 0.15, 0.3, 0.5, 0.75]),
         size=count,
-        p=[0.12, 0.2, 0.28, 0.26, 0.14],
+        p=[0.08, 0.12, 0.2, 0.25, 0.35],
     )
     crossover = rng.random((count, n_sat)) < crossover_rates[:, None]
     children[crossover] = other[crossover]
@@ -384,7 +384,7 @@ def make_de_offspring(
     rates = rng.choice(
         np.asarray([0.05, 0.1, 0.25, 0.5, 0.9]),
         size=count,
-        p=[0.10, 0.18, 0.28, 0.28, 0.16],
+        p=[0.05, 0.10, 0.20, 0.30, 0.35],
     )
     satellite_mask = rng.random((count, n_sat)) < rates[:, None]
     empty = np.flatnonzero(~satellite_mask.any(axis=1))
@@ -510,9 +510,9 @@ def make_block_proposals(
 
     move_sizes = np.minimum(
         rng.choice(
-            np.asarray([1, 2, 3, 5, 8, max(1, n_sat // 2)]),
+            np.asarray([1, 2, 3, 5, 8, max(1, n_sat // 2), n_sat]),
             size=count,
-            p=[0.43, 0.24, 0.14, 0.10, 0.06, 0.03],
+            p=[0.35, 0.20, 0.12, 0.10, 0.08, 0.10, 0.05],
         ),
         n_sat,
     )
@@ -532,7 +532,7 @@ def make_block_proposals(
     genes += scaled_noise * steps[:, None, None] * changed[..., None]
 
     # Replace one selected satellite with a donor's whole six-dimensional state.
-    donor_rows = np.flatnonzero(rng.random(count) < 0.12)
+    donor_rows = np.flatnonzero(rng.random(count) < 0.18)
     if donor_rows.size:
         satellite = rng.integers(0, n_sat, size=donor_rows.size)
         genes[donor_rows, satellite] = donor_genes[donor_rows, satellite]
@@ -918,7 +918,7 @@ def main():
                     stagnant_evaluations >= cma_restart_after
                     and scored < args.iterations
                 ):
-                    restart_sigmas = (0.15, 0.3, 0.6)
+                    restart_sigmas = (0.2, 0.5, 1.0)
                     restart_sigma = restart_sigmas[
                         cma_restart_count % len(restart_sigmas)
                     ]
@@ -975,6 +975,19 @@ def main():
                     population, population_fitness = select_population(
                         combined_x, combined_fitness, args.population_size, rng
                     )
+                    if args.algorithm == "genetic":
+                        explorer_count = min(
+                            max(1, args.population_size // 10),
+                            len(refreshed) - local_count,
+                        )
+                        explorer_start = local_count
+                        if explorer_count:
+                            population[-explorer_count:] = refreshed[
+                                explorer_start : explorer_start + explorer_count
+                            ]
+                            population_fitness[-explorer_count:] = refreshed_fitness[
+                                explorer_start : explorer_start + explorer_count
+                            ]
                 refreshed_best = int(np.argmin(refreshed_fitness))
                 if refreshed_fitness[refreshed_best] < best_fitness:
                     best_x = refreshed[refreshed_best].copy()

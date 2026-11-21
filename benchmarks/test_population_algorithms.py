@@ -11,6 +11,7 @@ from benchmarks.run_optimization import (
     make_offspring,
     mutate_candidates,
     parent_improvement_rate,
+    random_candidates,
     rank_fitnesses,
     sample_de_indices,
     update_de_population,
@@ -40,6 +41,34 @@ class PopulationAlgorithmTests(unittest.TestCase):
         self.assertTrue(np.any(children != 0.0))
         self.assertTrue(np.all(children >= self.lower))
         self.assertTrue(np.all(children <= self.upper))
+
+    def test_random_candidates_cover_more_of_the_velocity_bounds(self):
+        lower = self.lower.copy()
+        upper = self.upper.copy()
+        lower[3 * self.n_sat :] = -10.0
+        upper[3 * self.n_sat :] = 10.0
+        candidates = random_candidates(
+            1024, lower, upper, self.n_sat, 10.0, np.random.default_rng(18)
+        )
+
+        velocity_coverage = np.mean(
+            np.abs(candidates[:, 3 * self.n_sat :]) / 10.0
+        )
+        self.assertGreater(velocity_coverage, 0.29)
+
+    def test_genetic_mutations_change_broader_satellite_subsets(self):
+        parents = np.zeros((1024, 6 * self.n_sat))
+        children = mutate_candidates(
+            parents,
+            np.full(6 * self.n_sat, -100.0),
+            np.full(6 * self.n_sat, 100.0),
+            self.n_sat,
+            np.eye(6) * 0.01,
+            np.random.default_rng(19),
+        )
+        states_changed = np.any(children.reshape(-1, 6, self.n_sat) != 0, axis=1)
+
+        self.assertGreater(states_changed.sum(axis=1).mean() / self.n_sat, 0.30)
 
     def test_mutation_map_must_match_reference_state_matrix(self):
         with self.assertRaisesRegex(ValueError, r"shape \(6, 6\)"):
@@ -87,6 +116,24 @@ class PopulationAlgorithmTests(unittest.TestCase):
             self.assertTrue(np.isfinite(candidates).all())
             self.assertTrue(np.all(candidates >= self.lower))
             self.assertTrue(np.all(candidates <= self.upper))
+
+    def test_block_annealing_includes_full_formation_moves(self):
+        population = np.zeros((2000, 6 * self.n_sat))
+        proposals = make_block_proposals(
+            population,
+            population,
+            np.full(6 * self.n_sat, -1.0),
+            np.full(6 * self.n_sat, 1.0),
+            self.n_sat,
+            np.eye(6) * 0.01,
+            np.random.default_rng(20),
+            0.12,
+        )
+        changed_counts = np.any(
+            proposals.reshape(-1, 6, self.n_sat) != 0.0, axis=1
+        ).sum(axis=1)
+
+        self.assertTrue(np.any(changed_counts == self.n_sat))
 
     def test_differential_evolution_generates_small_batches(self):
         population = np.random.default_rng(10).uniform(

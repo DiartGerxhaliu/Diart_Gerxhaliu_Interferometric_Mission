@@ -67,9 +67,9 @@ Run the focused regression tests with:
 | `auto` (default) | Rotates through all five methods after every 5 million evaluations, regardless of improvement. Easy starts with coordinate search; medium and hard start with DE. |
 | `coordinate-search` | Proposes changes that cross projected grid-cell boundaries and samples single-satellite moves across the available satellites. |
 | `de` | Differential evolution with whole-satellite crossover, bounded adaptive scale, neutral moves across score plateaus, and population refreshes. |
-| `genetic` | Rank-based selection with randomized equal-score ties, whole-satellite crossover, and bounded mutation. |
-| `block-anneal` | Proposes satellite-state changes and accepts worse candidates using a separate, cooler annealing schedule. |
-| `lm-cma-es` | Limited-memory covariance adaptation in normalized coordinates; restarts at several scales after extended stagnation. |
+| `genetic` | Rank-based selection with randomized equal-score ties, broader whole-satellite mutations, and retained global explorers at restarts. |
+| `block-anneal` | Proposes mostly small satellite blocks with occasional full-formation moves; uses a separate, cooler annealing schedule. |
+| `lm-cma-es` | Limited-memory covariance adaptation in normalized coordinates; restarts from the saved best at increasingly broad scales after extended stagnation. |
 
 The standalone random-search utility is not a `main.py --algorithm` option; run it with `& $python -m benchmarks.run_random_search --case hard --evaluations 10000000`.
 
