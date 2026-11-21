@@ -1,0 +1,62 @@
+Started: 2026-11-21T15:12:33+01:00
+Segment: 1; case: medium; algorithm: de
+Starting best candidate/checkpoint: -1.73527662106
+
+Continuing RNG stream from: C:\Users\User\Desktop\Fakultet\DAA\Diart_Gerxhaliu_Interferometric_Mission\results\cases\medium_optimizer_rng.npz
+Seeding from saved best: results\cases\medium_min_best.npz
+Search: de | GPU-batched population
+Case: medium | ESA problem: large-observatory-in-dro
+Objective: minimize ESA reference fitness
+GPU: NVIDIA GeForce RTX 5070 Laptop GPU
+Population: 256 | Batch: 2048 | Velocity bound: 10.0 | Seed: 20261115
+Starting fitness: -1.7352766210588935
+progress 51456/2000000; best fitness -1.73527662106; population best -1.73527662106; mutation scale 0.500
+progress 102656/2000000; best fitness -1.73527662106; population best -1.73527662106; mutation scale 0.541
+progress 153856/2000000; best fitness -1.73527662106; population best -1.73527662106; mutation scale 0.848
+evaluation 205,184: best -1.73646638905
+progress 205184/2000000; best fitness -1.73646638905; population best -1.73646638905; mutation scale 1.399
+progress 256384/2000000; best fitness -1.73646638905; population best -1.73646638905; mutation scale 1.197
+progress 307584/2000000; best fitness -1.73646638905; population best -1.73646638905; mutation scale 1.973
+progress 358784/2000000; best fitness -1.73646638905; population best -1.73646638905; mutation scale 3.253
+progress 410112/2000000; best fitness -1.73646638905; population best -1.73646638905; mutation scale 5.363
+progress 461312/2000000; best fitness -1.73646638905; population best -1.73646638905; mutation scale 4.363
+progress 512512/2000000; best fitness -1.73646638905; population best -1.73646638905; mutation scale 7.193
+progress 563712/2000000; best fitness -1.73646638905; population best -1.73646638905; mutation scale 8.000
+progress 615040/2000000; best fitness -1.73646638905; population best -1.73646638905; mutation scale 8.000
+progress 666240/2000000; best fitness -1.73646638905; population best -1.73646638905; mutation scale 7.963
+progress 717440/2000000; best fitness -1.73646638905; population best -1.73646638905; mutation scale 8.000
+evaluation 727,680: best -1.73646638905
+progress 768640/2000000; best fitness -1.73646638905; population best -1.73646638905; mutation scale 8.000
+progress 819840/2000000; best fitness -1.73646638905; population best -1.73646638905; mutation scale 8.000
+progress 871040/2000000; best fitness -1.73646638905; population best -1.73646638905; mutation scale 8.000
+progress 922240/2000000; best fitness -1.73646638905; population best -1.73646638905; mutation scale 8.000
+progress 973568/2000000; best fitness -1.73646638905; population best -1.73646638905; mutation scale 6.514
+progress 1024768/2000000; best fitness -1.73646638905; population best -1.73646638905; mutation scale 8.000
+progress 1075968/2000000; best fitness -1.73646638905; population best -1.73646638905; mutation scale 8.000
+progress 1127168/2000000; best fitness -1.73646638905; population best -1.73646638905; mutation scale 8.000
+progress 1178496/2000000; best fitness -1.73646638905; population best -1.73646638905; mutation scale 6.851
+progress 1229696/2000000; best fitness -1.73646638905; population best -1.73646638905; mutation scale 8.000
+progress 1280896/2000000; best fitness -1.73646638905; population best -1.73646638905; mutation scale 8.000
+evaluation 1,299,328: best -1.73884592504
+progress 1332096/2000000; best fitness -1.73884592504; population best -1.73884592504; mutation scale 8.000
+progress 1383296/2000000; best fitness -1.73884592504; population best -1.73884592504; mutation scale 8.000
+progress 1434496/2000000; best fitness -1.73884592504; population best -1.73884592504; mutation scale 8.000
+progress 1485696/2000000; best fitness -1.73884592504; population best -1.73884592504; mutation scale 8.000
+progress 1537024/2000000; best fitness -1.73884592504; population best -1.73884592504; mutation scale 6.652
+progress 1588224/2000000; best fitness -1.73884592504; population best -1.73884592504; mutation scale 8.000
+progress 1639424/2000000; best fitness -1.73884592504; population best -1.73884592504; mutation scale 8.000
+progress 1690624/2000000; best fitness -1.73884592504; population best -1.73884592504; mutation scale 8.000
+progress 1741952/2000000; best fitness -1.73884592504; population best -1.73884592504; mutation scale 7.358
+progress 1793152/2000000; best fitness -1.73884592504; population best -1.73884592504; mutation scale 8.000
+progress 1844352/2000000; best fitness -1.73884592504; population best -1.73884592504; mutation scale 8.000
+evaluation 1,852,544: best -1.74003569304
+progress 1895552/2000000; best fitness -1.74003569304; population best -1.74003569304; mutation scale 8.000
+progress 1946752/2000000; best fitness -1.74003569304; population best -1.74003569304; mutation scale 8.000
+evaluation 1,997,952: best -1.74122546104
+progress 1997952/2000000; best fitness -1.74122546104; population best -1.74122546104; mutation scale 6.800
+progress 2000000/2000000; best fitness -1.74122546104; population best -1.74122546104; mutation scale 6.937
+CPU verification deferred to launcher.
+OMP: Error #15: Initializing libomp.dll, but found libiomp5md.dll already initialized.
+OMP: Hint: This means that multiple copies of the OpenMP runtime have been linked into the program. That is dangerous, since it can degrade performance or cause incorrect results. The best thing to do is to ensure that only a single OpenMP runtime is linked into the process, e.g. by avoiding static linking of the OpenMP runtime in any library. As an unsafe, unsupported, undocumented workaround you can set the environment variable KMP_DUPLICATE_LIB_OK=TRUE to allow the program to continue to execute, but that may cause crashes or silently produce incorrect results. For more information, please see http://openmp.llvm.org/
+
+Search exited with code 3.

@@ -1,124 +1,91 @@
 # ESA SpOC-3 Interferometric Mission Optimizer
 
-This repository searches satellite initial conditions for ESA's Interferometric Mission challenge. Easy, medium, and hard candidates are optimized and saved independently.
+This project searches satellite initial conditions for ESA's SpOC-3 Interferometric Mission challenge. Easy, medium, and hard candidates are optimized and submitted independently.
 
-## Objective and evaluators
+## Cases and current saved scores
 
-Each problem has its own evaluator/configuration:
+| Case | ESA problem ID | Orbit | Satellites | Grid | CPU-verified fitness |
+|---|---|---|---:|---:|---:|
+| Easy | `tiny-observatory-in-dro` | DRO | 5 | 11 x 11 x 11 | `-0.142857142857` |
+| Medium | `large-observatory-in-dro` | DRO | 40 | 21 x 21 x 21 | `-1.80785246877` |
+| Hard | `large-observatory-in-halo` | HALO | 40 | 21 x 21 x 21 | `-1.40690065437` |
 
-| Case | ESA problem ID | Orbit | Satellites | Grid |
-|---|---|---|---:|---:|
-| Easy | `tiny-observatory-in-dro` | DRO | 5 | 11 × 11 × 11 |
-| Medium | `large-observatory-in-dro` | DRO | 40 | 21 × 21 × 21 |
-| Hard | `large-observatory-in-halo` | HALO | 40 | 21 × 21 × 21 |
+These scores were checked against the local CPU evaluators on 2026-11-21. The candidate archives in `results/cases/` and matching JSONs in `results/submissions/` are the live results and may improve after this snapshot.
 
-For each of three observation times, the evaluator propagates each satellite's six-component relative state, bins in-range positions onto a 3-D grid, projects occupancy onto XY, XZ and YZ, and counts nonzero autocorrelation cells. It sums those three plane fill factors for each observation. The shipped evaluator returns the **negative of the weakest observation's sum**, `-min(fill_factor)`, so lower (more negative) fitness is better. The challenge README describes `-max`; this conflicts with the executable evaluator. The local CPU reference is the scoring authority used by the search and JSON builder.
+## Objective and constraints
 
-The chromosome has six blocks in this order:
+The decision vector contains six satellite-state blocks:
 
 ```text
 [dx_1...dx_N, dy_1...dy_N, dz_1...dz_N,
  dvx_1...dvx_N, dvy_1...dvy_N, dvz_1...dvz_N]
 ```
 
-Bounds are positions `[-1, 1]` and velocities `[-10, 10]`. Later observations apply the evaluator's inflation factor of 1.23. The hard case uses HALO initial conditions; easy and medium use DRO conditions.
+The input bounds are `[-1, 1]` for positions and `[-10, 10]` for velocities. The evaluator propagates the satellites to three observation times, bins in-range positions on a 3-D grid, projects occupied cells onto XY, XZ, and YZ planes, and counts nonzero autocorrelation cells. Multiple satellites in the same grid cell count as one occupied cell.
 
-## How the search works
+Fitness is the negative sum of the three plane fill factors at the weakest observation. The search minimizes fitness, so more negative is better. The score is discrete: small state changes often leave all grid occupancies unchanged. For the 21-cell grids, each fill-factor change is quantized in increments of `1 / 1681` (about `0.000595`); tiny fractional score changes are not expected.
 
-`benchmarks/run_optimization.py` scores candidate batches on the NVIDIA GPU, then checks the best candidate with the local CPU reference before saving it. A GPU fitness value by itself is provisional until that CPU check passes.
+All optimizers constrain every satellite to remain strictly inside the evaluator's `[-1, 1]` position bounds at all three observation times. Candidate improvements are saved immediately. The launcher updates that case's submission JSON immediately, then CPU-verifies the candidate when the segment finishes; treat a result as verified only after that check succeeds.
 
-The main search is differential evolution (DE): it combines differences between population members to propose new candidates, crosses over whole six-value satellite states, and adapts its mutation scale when progress stalls. It periodically refreshes weaker population members. Before crossover, the optimizer sorts satellites by initial X position. Satellite labels do not affect the score, so this gives equivalent permutations a consistent order and makes the same-index genes more likely to represent similar satellites. It changes representation only; the candidate is still evaluated by the ESA objective.
+## Run a search
 
-The genetic variant uses rank-based parent selection, whole-satellite crossover, and mutation in coordinates preconditioned by the linearized state-transition sensitivity. The coordinate search uses the evaluator's discrete grid structure: it directly proposes minimum-norm initial-state changes that cross projected cell boundaries, then combines satellite moves when single-satellite moves stall. Block annealing and independent random search remain available as alternatives.
-
-Fitness is discrete and plateau-prone: many small continuous changes leave all grid occupancies unchanged. Mutation therefore spans multiple scales, and random immigrants/restarts help explore formations outside the current local basin. No score is extrapolated: each reported candidate is an actual vector passed to the evaluator.
-
-## Run a case with `main.py`
-
-From the project directory, select one case and optionally choose a search algorithm:
+Run commands from the repository root in the ESA Python environment. For example:
 
 ```powershell
-& 'C:\Users\User\miniforge3\envs\esa_official_311\python.exe' main.py --easy
-& 'C:\Users\User\miniforge3\envs\esa_official_311\python.exe' main.py --medium --algorithm coordinate-search --iterations 50000000 --target-score -1.9
-& 'C:\Users\User\miniforge3\envs\esa_official_311\python.exe' main.py --hard --algorithm de --iterations 10000000 --population-size 4096
+$python = 'C:\Users\User\miniforge3\envs\esa_official_311\python.exe'
+& $python -u main.py --easy
+& $python -u main.py --medium
+& $python -u main.py --hard
 ```
 
-The available algorithms are `auto`, `coordinate-search`, `de`, `genetic`, and `block-anneal`. `auto` starts with coordinate search for easy and medium, and DE for hard (population 4096, 10 million evaluations per segment). Medium auto mode uses 2 million evaluations per segment so it can switch sooner if stalled. If a segment does not improve the best score in either the saved candidate or optimizer checkpoint, it switches to the next algorithm in that case's cycle: coordinate search, DE, genetic, then block annealing; hard starts with DE. Explicitly selecting an algorithm disables switching. The runner repeats search segments until you press `Ctrl+C`, resuming that case's saved checkpoint between segments. Every new best is immediately CPU-verified and updates the saved candidate and submission JSON; progress is retained even if the run is interrupted. `--iterations` (alias `--evaluations`) is the evaluation budget per segment, not a limit on the number of segments. If `--target-score` is supplied, reaching it disables the score cutoff and the search continues until stopped. More evaluations can improve the feasible score, but do not guarantee the old scores because the bounds constraint changes the search space.
+`main.py` runs continuously until `Ctrl+C`; its evaluation budgets are per segment, not a total run limit. `--target-score` does not stop the continuous search: after reaching the target, the launcher removes the cutoff and continues.
 
-All search algorithms constrain every satellite to remain strictly inside the evaluator's `[-1, 1]` position bounds on all axes at all three observation times. Candidates are scaled per satellite before scoring to preserve feasibility; existing best candidates that violate this rule are repaired and rescored. This stricter requirement reduces the previously recorded medium and hard scores.
+### Algorithms
 
-In coordinate-search mode, every 200,000 evaluations, 25% of the best-known candidate's satellite states (at least one) are randomized within the initial position and velocity bounds, then constrained to remain feasible. The other satellite states and the saved best candidate are preserved unless a feasible candidate improves it.
+| Option | Behavior |
+|---|---|
+| `auto` (default) | Cycles methods when a completed segment does not improve the saved best. Easy/medium start with coordinate search; hard starts with DE. |
+| `coordinate-search` | Proposes changes that cross projected grid-cell boundaries. |
+| `de` | Differential evolution with whole-satellite crossover, adaptive differential scale, and population refreshes. |
+| `genetic` | Rank-based selection, whole-satellite crossover, and mutation. |
+| `block-anneal` | Proposes satellite-state changes and accepts some worse candidates to explore. |
 
-The optimizer output is shown live in the terminal and saved under `results/logs/`. Each log ends with the run-local best score and whether that run improved the saved best.
+Auto cycles through coordinate search, DE, genetic, and block annealing; hard starts at DE. Automatic hard-DE segments use 2 million evaluations so a stalled search can switch sooner. Coordinate-search segments use 10 million evaluations, except medium auto segments, which use 2 million. Other population-search segments use 2 million; explicitly selected hard DE uses 10 million. Explicitly selecting one algorithm disables switching; for example, `--hard --algorithm de` continues DE rather than switching methods.
 
-## Current hard-case status
+Hard DE defaults to a population of 4096; other population searches default to 256. Useful options include `--batch-size`, `--population-size`, `--seed`, `--velocity-bound`, `--restart-after`, and `--temperature`. Run `& $python main.py --help` for the current CLI options. The launcher does not accept `--iterations`; direct optimizer modules do.
 
-Latest CPU-verified feasible hard candidate:
+Coordinate search randomizes 25% of the best-known candidate's satellite states every 1,000,000 evaluations, then enforces the observation bounds. Its saved best remains unchanged unless a feasible candidate scores better.
 
-| Item | Value |
-|---|---:|
-| Fitness | `-1.15348007139` |
-| Observation fill-factor sums | `[1.240333, 1.153480, 1.422368]` |
-| Requested hard target | `<= -1.5` |
-| Remaining gap | about `0.346520` |
+## Saved state and submissions
 
-The target is **not met yet**. The previously recorded `-1.4223676383105293` candidate violated the all-observations bound and was minimally adjusted to a feasible, CPU-rescored vector.
+- `results/cases/<case>_min_best.npz` stores the best candidate and its score.
+- `results/cases/<case>_optimizer_rng.npz` stores the population optimizer's random-number state at the end of a segment. The population itself is not checkpointed.
+- `results/cases/<case>_boundary_checkpoint.npz` stores coordinate-search progress.
+- `results/submissions/<case>_min_submission.json` stores the ESA submission for that case.
+- `results/logs/` contains the live output and final summary for each segment.
 
-The best candidate is stored internally at `results/cases/hard_min_best.npz`; the stream state is stored at `results/cases/hard_optimizer_rng.npz`. The population is not checkpointed, so resuming after a completed segment retains the best vector and RNG sequence but initializes a new population.
+If interrupted with `Ctrl+C`, saved candidate improvements remain, but the random state from an unfinished segment may not be saved. Resuming restores the last completed random-state checkpoint and creates a new population around the saved best.
 
-## Current medium-case status
-
-The latest CPU-verified feasible large-observatory-in-DRO candidate scores `-1.67340868531`, so it does not meet the requested `-1.75` target. The previously recorded `-1.7709696609161212` candidate violated the all-observations bound and was minimally adjusted to a feasible, CPU-rescored vector. Its candidate is in `results/cases/medium_min_best.npz`, with resumable walker and search state in `results/cases/medium_boundary_checkpoint.npz`.
-
-To continue the medium search, run:
+To CPU-verify the saved candidates and regenerate the three JSON files:
 
 ```powershell
-& 'C:\Users\User\miniforge3\envs\esa_official_311\python.exe' -u -m benchmarks.run_coordinate_search --case medium --evaluations 1000000 --batch-size 2048 --seed 777 --target-score -1.75
+& $python -m benchmarks.build_submission
 ```
 
-## Run or resume hard search (PowerShell)
+This command does not upload anything to ESA. Do not run multiple GPU searches at the same time; they contend for the same GPU and do not share a population.
 
-From the project directory, run:
-
-```powershell
-& 'C:\Users\User\miniforge3\envs\esa_official_311\python.exe' -u -m benchmarks.run_optimization --case hard --algorithm de --iterations 10000000 --batch-size 2048 --population-size 4096 --seed 239817 --velocity-bound 10 --restart-after 300 --temperature 0.35 --target-score -1.5 --resume-rng results\cases\hard_optimizer_rng.npz
-```
-
-To try the genetic variant, replace `--algorithm de` with `--algorithm genetic`. Do not launch concurrent GPU searches on this machine; they contend for the same GPU and do not share a population. The seed is checked against the checkpoint. Keeping the seed and `--resume-rng` continues from the *last saved* random state; omitting `--resume-rng` restarts the stream from the seed. If a process is interrupted, its in-memory RNG state is lost, so restarting from the last checkpoint replays random draws from that unfinished segment. Use `--rng-jump` to deliberately move farther along the PCG64 stream when avoiding that replay matters; this skips draws rather than restoring the exact interrupted state.
-
-At completion, check for `CPU verification difference`, `Observation scores`, `Final fitness`, and `Saved RNG checkpoint` in the output. Only then treat a new score as verified.
-
-## Build ESA JSON files
-
-The `.npz` files are optimizer checkpoints, not ESA submissions. After a run completes successfully, build the per-case JSON files with:
-
-```powershell
-& 'C:\Users\User\miniforge3\Scripts\conda.exe' run -p 'C:\Users\User\miniforge3\envs\esa' --no-capture-output python -m benchmarks.build_submission
-```
-
-This checks the saved easy, medium, and hard vectors against their matching local CPU evaluators and writes:
-
-```text
-results/submissions/easy_min_submission.json
-results/submissions/medium_min_submission.json
-results/submissions/hard_min_submission.json
-```
-
-Each JSON contains an ESA `decisionVector`, challenge ID, and matching problem ID. Building these files does not upload them to ESA.
-
-## Important files
+## Project files and environment
 
 | Path | Purpose |
 |---|---|
-| `reference/esa_reference.py` | Hard HALO CPU reference (`udp`); protected, do not edit |
-| `src/evaluation/cases.py` | Case definitions and matching DRO/HALO reference construction |
-| `src/evaluation/gpu.py` | Batched PyTorch GPU evaluator |
-| `src/evaluation/objectives.py` | CPU observation-score helpers |
-| `benchmarks/run_optimization.py` | GPU DE, genetic, and block-anneal search |
-| `benchmarks/run_random_search.py` | Checkpointed independent random search |
-| `benchmarks/run_coordinate_search.py` | Checkpointed grid-boundary-guided coordinate search |
-| `benchmarks/build_submission.py` | CPU verification and JSON exporter |
-| `main.py` | Case/algorithm CLI and per-case submission updater |
-| `OPTIMIZER_HANDOFF.md` | Search history, rationale, checkpoints, and continuation notes |
+| `main.py` | Continuous case runner, auto switching, logs, and submission updates |
+| `benchmarks/run_optimization.py` | GPU population optimizers |
+| `benchmarks/run_coordinate_search.py` | Grid-boundary-guided coordinate search |
+| `benchmarks/run_random_search.py` | Independent random-search utility |
+| `benchmarks/build_submission.py` | CPU verification and ESA JSON generation |
+| `src/evaluation/cases.py` | Case configuration and matching reference selection |
+| `src/evaluation/gpu.py` | Batched PyTorch GPU scoring |
+| `src/evaluation/constraints.py` | Observation-bound enforcement and checks |
+| `reference/` | Local evaluator files; do not edit |
 
-ESA's Dependencies page requires `heyoka==3.2.0`; newer releases changed the `propagate_grid` return tuple used by the evaluator files. The CPU evaluator also requires PyGMO, NumPy, SciPy, Pillow, and Matplotlib. GPU search additionally requires CUDA-enabled PyTorch. The tested GPU is an NVIDIA GeForce RTX 5070 Laptop GPU.
+The evaluator requires `heyoka==3.2.0`. GPU population search additionally requires CUDA-enabled PyTorch. The documented environment is `esa_official_311`; the tested GPU is an NVIDIA GeForce RTX 5070 Laptop GPU.

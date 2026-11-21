@@ -126,6 +126,11 @@ def parse_args():
         default=0.35,
         help="parent-selection spread; larger values preserve more population diversity",
     )
+    parser.add_argument(
+        "--skip-cpu-verification",
+        action="store_true",
+        help="defer CPU verification to a separate launcher process",
+    )
     return parser.parse_args()
 
 
@@ -337,6 +342,15 @@ def make_de_offspring(
         immigrant_count, lower, upper, n_sat, velocity_bound, rng
     )
     return trials, targets, immigrant_rows
+
+
+def adapt_de_step_multiplier(step_multiplier, success_rate):
+    """Adjust DE's differential scale to keep trial acceptance near 10-20%."""
+    if success_rate < 0.1:
+        return min(8.0, step_multiplier * 1.2)
+    if success_rate > 0.2:
+        return max(0.1, step_multiplier * 0.8)
+    return step_multiplier
 
 
 def make_block_proposals(
@@ -621,7 +635,8 @@ def main():
                 best_fitness = float(child_fitness[child_best])
                 best_found_at = scored
                 stagnant_generations = 0
-                step_multiplier = max(0.5, step_multiplier * 0.85)
+                if args.algorithm != "de":
+                    step_multiplier = max(0.5, step_multiplier * 0.85)
                 save_candidate_progress(
                     case_id,
                     best_x,
@@ -635,12 +650,16 @@ def main():
                 print(f"evaluation {scored:,}: best {best_fitness:.12g}", flush=True)
             else:
                 stagnant_generations += 1
-                if success_rate > 0.02:
-                    step_multiplier = max(0.5, step_multiplier * 0.97)
-                else:
-                    # Widen exploration during a plateau instead of shrinking to
-                    # tiny moves that cannot escape the current grid pattern.
-                    step_multiplier = min(8.0, step_multiplier * np.exp(0.02))
+                if args.algorithm != "de":
+                    if success_rate > 0.02:
+                        step_multiplier = max(0.5, step_multiplier * 0.97)
+                    else:
+                        step_multiplier = min(8.0, step_multiplier * np.exp(0.02))
+
+            if args.algorithm == "de":
+                step_multiplier = adapt_de_step_multiplier(
+                    step_multiplier, success_rate
+                )
 
             if args.algorithm == "de":
                 for target in np.unique(target_indices):
@@ -741,51 +760,61 @@ def main():
         if args.target_score is not None and best_fitness <= args.target_score:
             print(f"Target reached: {best_fitness:.12g} <= {args.target_score}", flush=True)
 
-        np.savez_compressed(candidate_path, x=best_x)
-        subprocess.run(
-            [
-                sys.executable,
-                "-c",
-                VERIFY_REFERENCE,
-                case_id,
-                str(candidate_path),
-                str(verified_path),
-            ],
-            check=True,
-        )
-        with np.load(verified_path) as verified:
-            cpu_fitness = float(verified["reference_fitness"])
-            score_fitness = float(verified["score_fitness"])
-            observation_values = np.asarray(verified["observation_scores"])
+        observation_values = None
+        if args.skip_cpu_verification:
+            cpu_fitness = best_fitness
+            print("CPU verification deferred to launcher.", flush=True)
+        else:
+            np.savez_compressed(candidate_path, x=best_x)
+            subprocess.run(
+                [
+                    sys.executable,
+                    "-c",
+                    VERIFY_REFERENCE,
+                    case_id,
+                    str(candidate_path),
+                    str(verified_path),
+                ],
+                check=True,
+            )
+            with np.load(verified_path) as verified:
+                cpu_fitness = float(verified["reference_fitness"])
+                score_fitness = float(verified["score_fitness"])
+                observation_values = np.asarray(verified["observation_scores"])
 
-    difference = abs(best_fitness - cpu_fitness)
-    if difference > 1e-10 or abs(cpu_fitness - score_fitness) > 1e-10:
-        raise RuntimeError(
-            f"GPU/CPU score mismatch for {case_id}: {best_fitness} vs {cpu_fitness}."
-        )
+            difference = abs(best_fitness - cpu_fitness)
+            if difference > 1e-10 or abs(cpu_fitness - score_fitness) > 1e-10:
+                raise RuntimeError(
+                    f"GPU/CPU score mismatch for {case_id}: "
+                    f"{best_fitness} vs {cpu_fitness}."
+                )
     if not is_inside_observation_bounds(best_x, position_maps, n_sat):
         raise RuntimeError(f"Best {case_id} candidate violates observation bounds.")
 
-    np.savez_compressed(
-        best_path,
-        x=best_x,
-        fitness=cpu_fitness,
-        observation_scores=observation_values,
-        initial_fitness=initial_fitness,
-        best_found_at=best_found_at,
-        seed=args.seed,
-        iterations=args.iterations,
-        batch_size=args.batch_size,
-        population_size=args.population_size,
-        velocity_bound=args.velocity_bound,
-        restart_after=args.restart_after,
-        temperature=args.temperature,
-        objective="min",
-        case_id=case_id,
-    )
+    save_metadata = {
+        "x": best_x,
+        "fitness": cpu_fitness,
+        "initial_fitness": initial_fitness,
+        "best_found_at": best_found_at,
+        "seed": args.seed,
+        "iterations": args.iterations,
+        "batch_size": args.batch_size,
+        "population_size": args.population_size,
+        "velocity_bound": args.velocity_bound,
+        "restart_after": args.restart_after,
+        "temperature": args.temperature,
+        "objective": "min",
+        "case_id": case_id,
+    }
+    if observation_values is not None:
+        save_metadata["observation_scores"] = observation_values
+    np.savez_compressed(best_path, **save_metadata)
 
-    print("CPU verification difference:", difference)
-    print("Observation scores:", np.array2string(observation_values, precision=6))
+    if not args.skip_cpu_verification:
+        print("CPU verification difference:", difference)
+        print("Observation scores:", np.array2string(observation_values, precision=6))
+    else:
+        print("Final GPU fitness:", cpu_fitness)
     print("Evaluations:", scored)
     print("Elapsed seconds:", round(time.perf_counter() - started, 2))
     print("Saved best:", best_path)

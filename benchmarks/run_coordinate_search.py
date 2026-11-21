@@ -211,6 +211,11 @@ def main():
         default=0.005,
         help="maximum fitness increase allowed during plateau exploration",
     )
+    parser.add_argument(
+        "--skip-cpu-verification",
+        action="store_true",
+        help="defer CPU verification to a separate launcher process",
+    )
     args = parser.parse_args()
     if min(
         args.evaluations,
@@ -500,17 +505,31 @@ def main():
                     f"boundary moves per proposal {move_size}",
                     flush=True,
                 )
-        np.savez_compressed(candidate_path, x=incumbent)
-        subprocess.run(
-            [sys.executable, "-c", VERIFY_REFERENCE, case_id, str(candidate_path), str(verified_path)],
-            check=True,
-        )
-        with np.load(verified_path) as verified:
-            cpu_fitness = float(verified["reference_fitness"])
-            observation_scores = np.asarray(verified["observation_scores"])
-
-    if abs(incumbent_fitness - cpu_fitness) > 1e-10:
-        raise RuntimeError(f"CPU/GPU verification mismatch: {cpu_fitness} vs {incumbent_fitness}.")
+        observation_scores = None
+        if args.skip_cpu_verification:
+            cpu_fitness = incumbent_fitness
+            print("CPU verification deferred to launcher.", flush=True)
+        else:
+            np.savez_compressed(candidate_path, x=incumbent)
+            subprocess.run(
+                [
+                    sys.executable,
+                    "-c",
+                    VERIFY_REFERENCE,
+                    case_id,
+                    str(candidate_path),
+                    str(verified_path),
+                ],
+                check=True,
+            )
+            with np.load(verified_path) as verified:
+                cpu_fitness = float(verified["reference_fitness"])
+                observation_scores = np.asarray(verified["observation_scores"])
+            if abs(incumbent_fitness - cpu_fitness) > 1e-10:
+                raise RuntimeError(
+                    f"CPU/GPU verification mismatch: "
+                    f"{cpu_fitness} vs {incumbent_fitness}."
+                )
     if not is_inside_observation_bounds(incumbent, position_maps, n_sat):
         raise RuntimeError(f"Best {case_id} candidate violates observation bounds.")
     with np.load(best_path) as saved:
@@ -520,21 +539,25 @@ def main():
         not is_inside_observation_bounds(saved_x, position_maps, n_sat)
         or cpu_fitness < saved_fitness
     ):
-        np.savez_compressed(
-            best_path,
-            x=incumbent,
-            fitness=cpu_fitness,
-            observation_scores=observation_scores,
-            objective="min",
-            case_id=case_id,
-            algorithm="coordinate-search",
-            seed=args.seed,
-            iterations=evaluations_done,
-            best_found_at=best_found_at,
-        )
+        save_metadata = {
+            "x": incumbent,
+            "fitness": cpu_fitness,
+            "objective": "min",
+            "case_id": case_id,
+            "algorithm": "coordinate-search",
+            "seed": args.seed,
+            "iterations": evaluations_done,
+            "best_found_at": best_found_at,
+        }
+        if observation_scores is not None:
+            save_metadata["observation_scores"] = observation_scores
+        np.savez_compressed(best_path, **save_metadata)
     save_checkpoint()
-    print("CPU verification difference:", abs(incumbent_fitness - cpu_fitness))
-    print("Observation scores:", observation_scores)
+    if observation_scores is not None:
+        print("CPU verification difference:", abs(incumbent_fitness - cpu_fitness))
+        print("Observation scores:", observation_scores)
+    else:
+        print("Final GPU fitness:", cpu_fitness)
     print("Total evaluations:", evaluations_done)
     print("Target:", args.target_score)
     print("Final fitness:", cpu_fitness)

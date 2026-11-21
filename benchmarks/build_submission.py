@@ -116,7 +116,7 @@ def save_candidate_progress(case_id, candidate, fitness, **metadata):
     return path
 
 
-def submission_record(case_id, candidate, cpu_fitness):
+def submission_record(case_id, candidate, fitness):
     spec = get_case(case_id)
     return {
         "decisionVector": candidate.tolist(),
@@ -124,9 +124,9 @@ def submission_record(case_id, candidate, cpu_fitness):
         "challenge": CHALLENGE_ID,
         "name": f"Interferometric Mission {case_id.title()}",
         "description": (
-            f"Locally optimized and CPU-verified {case_id} candidate; "
+            f"Locally optimized feasible {case_id} candidate; "
             f"published minimum-observation objective; "
-            f"fitness={cpu_fitness:.12g}."
+            f"fitness={fitness:.12g}."
         ),
     }
 

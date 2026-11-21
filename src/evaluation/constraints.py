@@ -49,7 +49,7 @@ def is_inside_observation_bounds(candidate, position_maps, n_sat):
         raise ValueError(f"Candidate must contain exactly {6 * n_sat} values.")
     states = values.reshape(6, n_sat).T
     for position_map in position_maps:
-        positions = states @ position_map.T
+        positions = np.einsum("nj,ij->ni", states, position_map)
         if not np.all(np.abs(positions) < 1.0):
             return False
     return True

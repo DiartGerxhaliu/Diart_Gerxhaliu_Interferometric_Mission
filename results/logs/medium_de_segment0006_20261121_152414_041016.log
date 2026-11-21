@@ -1,0 +1,67 @@
+Started: 2026-11-21T15:24:14+01:00
+Segment: 6; case: medium; algorithm: de
+Starting best candidate/checkpoint: -1.76977989292
+
+Continuing RNG stream from: C:\Users\User\Desktop\Fakultet\DAA\Diart_Gerxhaliu_Interferometric_Mission\results\cases\medium_optimizer_rng.npz
+Seeding from saved best: results\cases\medium_min_best.npz
+Search: de | GPU-batched population
+Case: medium | ESA problem: large-observatory-in-dro
+Objective: minimize ESA reference fitness
+GPU: NVIDIA GeForce RTX 5070 Laptop GPU
+Population: 256 | Batch: 2048 | Velocity bound: 10.0 | Seed: 20261115
+Starting fitness: -1.7697798929208806
+evaluation 4,352: best -1.77215942891
+progress 51456/2000000; best fitness -1.77215942891; population best -1.77215942891; mutation scale 0.500
+progress 102656/2000000; best fitness -1.77215942891; population best -1.77215942891; mutation scale 0.717
+progress 153856/2000000; best fitness -1.77215942891; population best -1.77215942891; mutation scale 1.182
+progress 205056/2000000; best fitness -1.77215942891; population best -1.77215942891; mutation scale 1.948
+progress 256384/2000000; best fitness -1.77215942891; population best -1.77215942891; mutation scale 1.667
+progress 307584/2000000; best fitness -1.77215942891; population best -1.77215942891; mutation scale 2.748
+progress 358784/2000000; best fitness -1.77215942891; population best -1.77215942891; mutation scale 4.531
+progress 409984/2000000; best fitness -1.77215942891; population best -1.77215942891; mutation scale 7.470
+progress 461312/2000000; best fitness -1.77215942891; population best -1.77215942891; mutation scale 7.436
+progress 512512/2000000; best fitness -1.77215942891; population best -1.77215942891; mutation scale 8.000
+progress 563712/2000000; best fitness -1.77215942891; population best -1.77215942891; mutation scale 8.000
+progress 614912/2000000; best fitness -1.77215942891; population best -1.77215942891; mutation scale 8.000
+progress 666240/2000000; best fitness -1.77215942891; population best -1.77215942891; mutation scale 8.000
+progress 717440/2000000; best fitness -1.77215942891; population best -1.77215942891; mutation scale 8.000
+progress 768640/2000000; best fitness -1.77215942891; population best -1.77215942891; mutation scale 8.000
+progress 819840/2000000; best fitness -1.77215942891; population best -1.77215942891; mutation scale 8.000
+progress 871168/2000000; best fitness -1.77215942891; population best -1.77215942891; mutation scale 7.275
+progress 922368/2000000; best fitness -1.77215942891; population best -1.77215942891; mutation scale 8.000
+progress 973568/2000000; best fitness -1.77215942891; population best -1.77215942891; mutation scale 8.000
+evaluation 983,808: best -1.77334919691
+progress 1024768/2000000; best fitness -1.77334919691; population best -1.77334919691; mutation scale 8.000
+progress 1075968/2000000; best fitness -1.77334919691; population best -1.77334919691; mutation scale 8.000
+evaluation 1,106,688: best -1.7757287329
+progress 1127168/2000000; best fitness -1.7757287329; population best -1.7757287329; mutation scale 8.000
+progress 1178368/2000000; best fitness -1.7757287329; population best -1.7757287329; mutation scale 8.000
+progress 1229568/2000000; best fitness -1.7757287329; population best -1.7757287329; mutation scale 8.000
+progress 1280768/2000000; best fitness -1.7757287329; population best -1.7757287329; mutation scale 8.000
+progress 1332096/2000000; best fitness -1.7757287329; population best -1.7757287329; mutation scale 5.899
+progress 1383296/2000000; best fitness -1.7757287329; population best -1.7757287329; mutation scale 8.000
+progress 1434496/2000000; best fitness -1.7757287329; population best -1.7757287329; mutation scale 8.000
+progress 1485696/2000000; best fitness -1.7757287329; population best -1.7757287329; mutation scale 8.000
+evaluation 1,522,688: best -1.77691850089
+progress 1537024/2000000; best fitness -1.77691850089; population best -1.77691850089; mutation scale 5.170
+progress 1588224/2000000; best fitness -1.77691850089; population best -1.77691850089; mutation scale 8.000
+progress 1639424/2000000; best fitness -1.77691850089; population best -1.77691850089; mutation scale 8.000
+progress 1690624/2000000; best fitness -1.77691850089; population best -1.77691850089; mutation scale 8.000
+progress 1741952/2000000; best fitness -1.77691850089; population best -1.77691850089; mutation scale 6.464
+progress 1793152/2000000; best fitness -1.77691850089; population best -1.77691850089; mutation scale 8.000
+progress 1844352/2000000; best fitness -1.77691850089; population best -1.77691850089; mutation scale 8.000
+progress 1895552/2000000; best fitness -1.77691850089; population best -1.77691850089; mutation scale 8.000
+evaluation 1,905,792: best -1.78286734087
+progress 1946752/2000000; best fitness -1.78286734087; population best -1.78286734087; mutation scale 8.000
+progress 1997952/2000000; best fitness -1.78286734087; population best -1.78286734087; mutation scale 8.000
+progress 2000000/2000000; best fitness -1.78286734087; population best -1.78286734087; mutation scale 8.000
+CPU verification deferred to launcher.
+Final GPU fitness: -1.7828673408685307
+Evaluations: 2000000
+Elapsed seconds: 94.84
+Saved best: results\cases\medium_min_best.npz
+Final fitness: -1.7828673408685307
+Saved RNG checkpoint: results\cases\medium_optimizer_rng.npz
+
+Run-local best (including starting candidate): -1.78286734087
+Improved saved best this run: yes

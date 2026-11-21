@@ -1,0 +1,14 @@
+Started: 2026-11-21T16:00:38+01:00
+Segment: 1; case: hard; algorithm: de
+Starting best candidate/checkpoint: -1.40690065437
+
+Continuing RNG stream from: C:\Users\User\Desktop\Fakultet\DAA\Diart_Gerxhaliu_Interferometric_Mission\results\cases\hard_optimizer_rng.npz
+Seeding from saved best: results\cases\hard_min_best.npz
+Search: de | GPU-batched population
+Case: hard | ESA problem: large-observatory-in-halo
+Objective: minimize ESA reference fitness
+GPU: NVIDIA GeForce RTX 5070 Laptop GPU
+Population: 4096 | Batch: 2048 | Velocity bound: 10.0 | Seed: 239817
+Starting fitness: -1.4069006543723974
+
+Interrupted by user before this segment completed.

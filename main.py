@@ -34,8 +34,8 @@ SEARCH_CYCLES = {
 def parse_args():
     parser = argparse.ArgumentParser(
         description=(
-            "Continuously search one ESA case until Ctrl+C. Scores are minimized; "
-            "a better CPU-verified result updates only that case's submission JSON."
+            "Search one ESA case continuously until Ctrl+C. Scores are minimized; "
+            "each new feasible best updates that case's submission JSON."
         )
     )
     cases = parser.add_mutually_exclusive_group(required=True)
@@ -47,17 +47,6 @@ def parse_args():
         choices=("auto",) + ALGORITHMS,
         default="auto",
         help="auto switches algorithms after a segment with no improvement",
-    )
-    parser.add_argument(
-        "--iterations",
-        "--evaluations",
-        dest="iterations",
-        type=int,
-        default=None,
-        help=(
-            "evaluation budget per segment (default: 10M for coordinate search "
-            "or hard-case DE; 2M otherwise)"
-        ),
     )
     parser.add_argument("--batch-size", type=int, default=2048)
     parser.add_argument("--seed", type=int, default=None)
@@ -132,19 +121,21 @@ def build_search_command(args, algorithm=None):
         and (args.resume_rng is not None or args.rng_jump)
     ):
         raise ValueError("--resume-rng and --rng-jump apply only to population algorithms.")
-    budget = args.iterations
-    if budget is None:
-        if args.algorithm == "auto" and args.case == "medium":
-            budget = 2_000_000
-        else:
-            budget = (
-                10_000_000
-                if coordinate_search
-                or (args.case == "hard" and selected_algorithm == "de")
-                else 2_000_000
+    if args.algorithm == "auto" and args.case == "medium":
+        budget = 2_000_000
+    else:
+        budget = (
+            10_000_000
+            if coordinate_search
+            or (
+                args.algorithm != "auto"
+                and args.case == "hard"
+                and selected_algorithm == "de"
             )
-    if budget <= 0 or args.batch_size <= 0:
-        raise ValueError("iterations/evaluations and batch-size must be positive.")
+            else 2_000_000
+        )
+    if args.batch_size <= 0:
+        raise ValueError("batch-size must be positive.")
     population_size = args.population_size
     if population_size is None:
         population_size = (
@@ -177,6 +168,7 @@ def build_search_command(args, algorithm=None):
             str(args.checkpoint_every),
             "--anneal-temperature",
             str(args.anneal_temperature),
+            "--skip-cpu-verification",
         ]
     else:
         default_rng = CASE_RESULTS_DIR / f"{args.case}_optimizer_rng.npz"
@@ -215,6 +207,7 @@ def build_search_command(args, algorithm=None):
             str(args.restart_after),
             "--temperature",
             str(args.temperature),
+            "--skip-cpu-verification",
         ]
         if resume_rng.is_file():
             command.extend(["--resume-rng", str(resume_rng)])
@@ -265,7 +258,7 @@ def run_search_and_log(command, case_id, algorithm, segment_number):
                 log.write(line)
                 log.flush()
                 if line.startswith("evaluation ") and ": best " in line:
-                    write_submission_if_better(case_id)
+                    write_candidate_submission(case_id)
         except KeyboardInterrupt:
             log.write("\nInterrupted by user before this segment completed.\n")
             log.flush()
@@ -347,6 +340,29 @@ def write_submission_if_better(case_id):
         if temporary_path.exists():
             temporary_path.unlink()
     print(f"Updated {submission_path} with CPU-verified score {cpu_fitness:.12g}.")
+
+
+def write_candidate_submission(case_id):
+    candidate_path = CASE_RESULTS_DIR / f"{case_id}_min_best.npz"
+    with np.load(candidate_path, allow_pickle=False) as saved:
+        candidate = np.asarray(saved["x"], dtype=np.float64)
+        fitness = float(saved["fitness"])
+    if candidate.ndim != 1 or not np.isfinite(candidate).all():
+        raise ValueError(f"Invalid candidate vector in {candidate_path}.")
+
+    record = submission_record(case_id, candidate, fitness)
+    SUBMISSION_DIR.mkdir(parents=True, exist_ok=True)
+    submission_path = SUBMISSION_DIR / f"{case_id}_min_submission.json"
+    temporary_path = submission_path.with_name(submission_path.name + ".tmp")
+    try:
+        with temporary_path.open("w", encoding="utf-8") as output:
+            json.dump([record], output, indent=6)
+            output.write("\n")
+        temporary_path.replace(submission_path)
+    finally:
+        if temporary_path.exists():
+            temporary_path.unlink()
+    print(f"Submission updated with new best candidate score {fitness:.12g}.")
 
 
 def main():

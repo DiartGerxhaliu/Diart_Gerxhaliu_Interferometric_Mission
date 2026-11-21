@@ -35,6 +35,6 @@
             "problem": "tiny-observatory-in-dro",
             "challenge": "spoc-3-interferometric-mission",
             "name": "Interferometric Mission Easy",
-            "description": "Locally optimized and CPU-verified easy candidate; published minimum-observation objective; fitness=-0.142857142857."
+            "description": "Locally optimized feasible easy candidate; published minimum-observation objective; fitness=-0.142857142857."
       }
 ]
