@@ -51,6 +51,22 @@ class LimitedMemoryCMATests(unittest.TestCase):
         self.assertEqual(strategy.sigma, 0.2)
         self.assertEqual(strategy.generation, 1)
 
+    def test_secondary_scores_guide_updates_on_official_fitness_ties(self):
+        strategy = LimitedMemoryCMAES(np.zeros(6), 4, sigma=0.2, memory=2)
+        z = np.zeros((4, 6))
+        directions = np.zeros((4, 6))
+        directions[:2, 0] = 1.0
+
+        strategy.tell(
+            z,
+            directions,
+            np.ones(4),
+            np.random.default_rng(231),
+            secondary_scores=np.asarray([4.0, 3.0, 2.0, 1.0]),
+        )
+
+        self.assertGreater(strategy.mean[0], 0.0)
+
     def test_strategy_improves_a_smooth_objective(self):
         rng = np.random.default_rng(42)
         strategy = LimitedMemoryCMAES(np.full(12, 2.0), 12, sigma=0.4, memory=5)

@@ -1,0 +1,35 @@
+Started: 2026-11-22T19:18:44+01:00
+Segment: 1; case: hard; algorithm: heuristic
+Starting best candidate/checkpoint: -1.50208209399
+
+Continuing RNG stream from: C:\Users\User\Desktop\Fakultet\DAA\Diart_Gerxhaliu_Interferometric_Mission\results\cases\hard_optimizer_rng.npz
+Seeding from saved best: results\cases\hard_min_best.npz
+Search: heuristic | GPU-batched population
+Case: hard | ESA problem: large-observatory-in-halo
+Objective: minimize ESA reference fitness
+GPU: NVIDIA GeForce RTX 5070 Laptop GPU
+Population: 256 | Batch: 2048 | Velocity bound: 10.0 | Seed: 239817
+Starting fitness: -1.502082093991672
+progress 51457/1000000000; best fitness -1.50208209399; population best -1.50208209399; weakest observation 1; mutation scale 1
+progress 102657/1000000000; best fitness -1.50208209399; population best -1.50208209399; weakest observation 1; mutation scale 1
+progress 153857/1000000000; best fitness -1.50208209399; population best -1.50208209399; weakest observation 1; mutation scale 1
+Coverage-heuristic restart 1; mutation scale 1; weakest observation 1
+progress 205057/1000000000; best fitness -1.50208209399; population best -1.50208209399; weakest observation 1; mutation scale 1
+progress 256257/1000000000; best fitness -1.50208209399; population best -1.50208209399; weakest observation 1; mutation scale 1
+progress 307457/1000000000; best fitness -1.50208209399; population best -1.50208209399; weakest observation 1; mutation scale 1
+progress 358657/1000000000; best fitness -1.50208209399; population best -1.50208209399; weakest observation 1; mutation scale 1
+Coverage-heuristic restart 2; mutation scale 2; weakest observation 1
+progress 409857/1000000000; best fitness -1.50208209399; population best -1.50208209399; weakest observation 1; mutation scale 2
+progress 461057/1000000000; best fitness -1.50208209399; population best -1.50208209399; weakest observation 1; mutation scale 2
+progress 512257/1000000000; best fitness -1.50208209399; population best -1.50208209399; weakest observation 1; mutation scale 2
+progress 563457/1000000000; best fitness -1.50208209399; population best -1.50208209399; weakest observation 1; mutation scale 2
+Coverage-heuristic restart 3; mutation scale 4; weakest observation 1
+progress 614657/1000000000; best fitness -1.50208209399; population best -1.50208209399; weakest observation 1; mutation scale 4
+progress 665857/1000000000; best fitness -1.50208209399; population best -1.50208209399; weakest observation 1; mutation scale 4
+progress 717057/1000000000; best fitness -1.50208209399; population best -1.50208209399; weakest observation 1; mutation scale 4
+progress 768257/1000000000; best fitness -1.50208209399; population best -1.50208209399; weakest observation 1; mutation scale 4
+Coverage-heuristic restart 4; mutation scale 1; weakest observation 1
+progress 819457/1000000000; best fitness -1.50208209399; population best -1.50208209399; weakest observation 1; mutation scale 1
+progress 870657/1000000000; best fitness -1.50208209399; population best -1.50208209399; weakest observation 1; mutation scale 1
+
+Interrupted by user before this segment completed.

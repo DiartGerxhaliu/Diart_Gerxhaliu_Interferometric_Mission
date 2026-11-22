@@ -1,0 +1,65 @@
+Started: 2026-11-22T18:01:34+01:00
+Segment: 4; case: hard; algorithm: block-anneal
+Starting best candidate/checkpoint: -1.50208209399
+
+Continuing RNG stream from: C:\Users\User\Desktop\Fakultet\DAA\Diart_Gerxhaliu_Interferometric_Mission\results\cases\hard_optimizer_rng.npz
+Seeding from saved best: results\cases\hard_min_best.npz
+Search: block-anneal | GPU-batched population
+Case: hard | ESA problem: large-observatory-in-halo
+Objective: minimize ESA reference fitness
+GPU: NVIDIA GeForce RTX 5070 Laptop GPU
+Population: 256 | Batch: 2048 | Velocity bound: 10.0 | Seed: 239817
+Starting fitness: -1.502082093991672
+progress 6657/5000000; best fitness -1.50208209399; population best -1.49375371802; temperature 0.004447
+progress 13057/5000000; best fitness -1.50208209399; population best -1.49018441404; temperature 0.003908
+progress 19457/5000000; best fitness -1.50208209399; population best -1.49018441404; temperature 0.003405
+progress 25985/5000000; best fitness -1.50208209399; population best -1.49613325402; temperature 0.00294
+progress 32385/5000000; best fitness -1.50208209399; population best -1.49613325402; temperature 0.002511
+progress 38785/5000000; best fitness -1.50208209399; population best -1.49613325402; temperature 0.00212
+progress 45185/5000000; best fitness -1.50208209399; population best -1.49613325402; temperature 0.001766
+progress 51713/5000000; best fitness -1.50208209399; population best -1.49613325402; temperature 0.001449
+progress 58113/5000000; best fitness -1.50208209399; population best -1.49613325402; temperature 0.00117
+progress 64513/5000000; best fitness -1.50208209399; population best -1.49613325402; temperature 0.0009269
+progress 70913/5000000; best fitness -1.50208209399; population best -1.49613325402; temperature 0.0007213
+progress 77441/5000000; best fitness -1.50208209399; population best -1.49851279001; temperature 0.0005528
+progress 83841/5000000; best fitness -1.50208209399; population best -1.49851279001; temperature 0.0004215
+progress 90241/5000000; best fitness -1.50208209399; population best -1.49851279001; temperature 0.0003272
+progress 96641/5000000; best fitness -1.50208209399; population best -1.49851279001; temperature 0.0002701
+progress 103169/5000000; best fitness -1.50208209399; population best -1.49851279001; temperature 0.00025
+progress 109569/5000000; best fitness -1.50208209399; population best -1.49851279001; temperature 0.004447
+progress 115969/5000000; best fitness -1.50208209399; population best -1.49613325402; temperature 0.003908
+progress 122369/5000000; best fitness -1.50208209399; population best -1.49613325402; temperature 0.003405
+progress 128897/5000000; best fitness -1.50208209399; population best -1.49613325402; temperature 0.00294
+progress 135297/5000000; best fitness -1.50208209399; population best -1.49137418203; temperature 0.002511
+progress 141697/5000000; best fitness -1.50208209399; population best -1.49018441404; temperature 0.00212
+progress 148097/5000000; best fitness -1.50208209399; population best -1.49018441404; temperature 0.001766
+progress 154625/5000000; best fitness -1.50208209399; population best -1.49018441404; temperature 0.001449
+progress 161025/5000000; best fitness -1.50208209399; population best -1.49018441404; temperature 0.00117
+progress 167425/5000000; best fitness -1.50208209399; population best -1.49018441404; temperature 0.0009269
+progress 173825/5000000; best fitness -1.50208209399; population best -1.49018441404; temperature 0.0007213
+progress 180353/5000000; best fitness -1.50208209399; population best -1.49018441404; temperature 0.0005528
+progress 186753/5000000; best fitness -1.50208209399; population best -1.49018441404; temperature 0.0004215
+progress 193153/5000000; best fitness -1.50208209399; population best -1.49018441404; temperature 0.0003272
+progress 199553/5000000; best fitness -1.50208209399; population best -1.49018441404; temperature 0.0002701
+progress 206081/5000000; best fitness -1.50208209399; population best -1.49494348602; temperature 0.00025
+progress 212481/5000000; best fitness -1.50208209399; population best -1.49375371802; temperature 0.004447
+progress 218881/5000000; best fitness -1.50208209399; population best -1.49375371802; temperature 0.003908
+progress 225281/5000000; best fitness -1.50208209399; population best -1.49018441404; temperature 0.003405
+progress 231809/5000000; best fitness -1.50208209399; population best -1.49375371802; temperature 0.00294
+progress 238209/5000000; best fitness -1.50208209399; population best -1.49375371802; temperature 0.002511
+progress 244609/5000000; best fitness -1.50208209399; population best -1.49375371802; temperature 0.00212
+progress 251009/5000000; best fitness -1.50208209399; population best -1.49375371802; temperature 0.001766
+progress 257537/5000000; best fitness -1.50208209399; population best -1.499702558; temperature 0.001449
+progress 263937/5000000; best fitness -1.50208209399; population best -1.499702558; temperature 0.00117
+progress 270337/5000000; best fitness -1.50208209399; population best -1.499702558; temperature 0.0009269
+progress 276737/5000000; best fitness -1.50208209399; population best -1.499702558; temperature 0.0007213
+progress 283265/5000000; best fitness -1.50208209399; population best -1.499702558; temperature 0.0005528
+progress 289665/5000000; best fitness -1.50208209399; population best -1.499702558; temperature 0.0004215
+progress 296065/5000000; best fitness -1.50208209399; population best -1.499702558; temperature 0.0003272
+progress 302465/5000000; best fitness -1.50208209399; population best -1.499702558; temperature 0.0002701
+progress 308993/5000000; best fitness -1.50208209399; population best -1.499702558; temperature 0.00025
+progress 315393/5000000; best fitness -1.50208209399; population best -1.499702558; temperature 0.004447
+progress 321793/5000000; best fitness -1.50208209399; population best -1.499702558; temperature 0.003908
+progress 328193/5000000; best fitness -1.50208209399; population best -1.499702558; temperature 0.003405
+
+Interrupted by user before this segment completed.

@@ -13,6 +13,7 @@ class MainAlgorithmSelectionTests(unittest.TestCase):
             algorithm="auto",
             rng_jump=0,
             batch_size=2048,
+            iterations=None,
             population_size=None,
             seed=42,
             velocity_bound=10.0,
@@ -38,6 +39,7 @@ class MainAlgorithmSelectionTests(unittest.TestCase):
             "genetic",
             "block-anneal",
             "lm-cma-es",
+            "heuristic",
         ):
             command = build_search_command(self.auto_args(), algorithm)
             budget_argument = (
@@ -47,10 +49,10 @@ class MainAlgorithmSelectionTests(unittest.TestCase):
                 command[command.index(budget_argument) + 1], "5000000"
             )
 
-    def test_auto_cycle_visits_all_five_algorithms(self):
+    def test_auto_cycle_visits_all_six_algorithms(self):
         algorithm = "de"
         visited = []
-        for _ in range(5):
+        for _ in range(6):
             algorithm = next_search_algorithm("hard", algorithm)
             visited.append(algorithm)
 
@@ -61,6 +63,7 @@ class MainAlgorithmSelectionTests(unittest.TestCase):
                 "genetic",
                 "block-anneal",
                 "lm-cma-es",
+                "heuristic",
                 "de",
             ],
         )
@@ -82,6 +85,34 @@ class MainAlgorithmSelectionTests(unittest.TestCase):
             command[command.index("--anneal-temperature") + 1],
             str(args.anneal_temperature),
         )
+
+    def test_explicit_iteration_limit_overrides_population_and_coordinate_budgets(self):
+        args = self.auto_args()
+        args.iterations = 1_000_000_000
+
+        for algorithm, option in (
+            ("heuristic", "--iterations"),
+            ("coordinate-search", "--evaluations"),
+        ):
+            command = build_search_command(args, algorithm)
+            self.assertEqual(
+                command[command.index(option) + 1], "1000000000"
+            )
+
+    def test_omitting_iterations_keeps_the_existing_two_million_default(self):
+        args = self.auto_args()
+        args.algorithm = "heuristic"
+
+        command = build_search_command(args)
+
+        self.assertEqual(command[command.index("--iterations") + 1], "2000000")
+
+    def test_iteration_limit_must_be_positive(self):
+        args = self.auto_args()
+        args.iterations = 0
+
+        with self.assertRaisesRegex(ValueError, "iterations must be positive"):
+            build_search_command(args, "heuristic")
 
 
 if __name__ == "__main__":

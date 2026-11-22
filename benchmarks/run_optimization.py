@@ -12,6 +12,10 @@ from types import SimpleNamespace
 import numpy as np
 
 from benchmarks.build_submission import save_candidate_progress
+from benchmarks.coverage_heuristic import (
+    make_coverage_guided_offspring,
+    satellite_coverage_guidance,
+)
 from benchmarks.lm_cma_es import (
     LimitedMemoryCMAES,
     default_population_size,
@@ -96,9 +100,12 @@ def parse_args():
     )
     parser.add_argument(
         "--algorithm",
-        choices=("de", "genetic", "block-anneal", "lm-cma-es"),
+        choices=("de", "genetic", "block-anneal", "lm-cma-es", "heuristic"),
         default="de",
-        help="GPU-batched differential evolution, genetic, block annealing, or LM-CMA-ES",
+        help=(
+            "GPU-batched differential evolution, genetic, block annealing, "
+            "LM-CMA-ES, or coverage-guided heuristic search"
+        ),
     )
     parser.add_argument("--seed", type=int, default=43)
     parser.add_argument(
@@ -257,10 +264,13 @@ def make_offspring(
     rng,
     temperature,
     step_multiplier,
+    secondary_scores=None,
 ):
     """Breed a batch using rank selection, satellite-level crossover and mutation."""
     population_size = len(population)
-    rank_order = rank_fitnesses(fitnesses, rng)
+    if secondary_scores is not None:
+        secondary_scores = np.asarray(secondary_scores)
+    rank_order = rank_fitnesses(fitnesses, rng, secondary_scores)
     rank_weights = np.exp(
         -np.arange(population_size)
         / max(1.0, population_size * np.clip(temperature, 0.05, 2.0))
@@ -296,12 +306,23 @@ def make_offspring(
     children[immigrant_rows] = random_candidates(
         immigrant_count, lower, upper, n_sat, velocity_bound, rng
     )
-    return children, fitnesses[first], immigrant_rows
+    result = children, fitnesses[first], immigrant_rows
+    if secondary_scores is not None:
+        return result + (secondary_scores[first],)
+    return result
 
 
-def select_population(candidates, fitnesses, population_size, rng):
+def select_population(
+    candidates,
+    fitnesses,
+    population_size,
+    rng,
+    secondary_scores=None,
+):
     """Keep strong elites plus weighted near-best candidates for diversity."""
-    order = rank_fitnesses(fitnesses, rng)
+    if secondary_scores is not None:
+        secondary_scores = np.asarray(secondary_scores)
+    order = rank_fitnesses(fitnesses, rng, secondary_scores)
     elite_count = max(1, population_size // 2)
     elites = order[:elite_count]
 
@@ -316,13 +337,24 @@ def select_population(candidates, fitnesses, population_size, rng):
         selected = np.concatenate((elites, diverse))
     else:
         selected = order[:population_size]
-    return candidates[selected].copy(), fitnesses[selected].copy()
+    result = candidates[selected].copy(), fitnesses[selected].copy()
+    if secondary_scores is not None:
+        return result + (secondary_scores[selected].copy(),)
+    return result
 
 
-def rank_fitnesses(fitnesses, rng):
-    """Sort by score while randomizing equal-score ties on quantized objectives."""
+def rank_fitnesses(fitnesses, rng, secondary_scores=None):
+    """Rank by official fitness, then secondary progress, then random ties."""
     fitnesses = np.asarray(fitnesses)
-    return np.lexsort((rng.random(len(fitnesses)), fitnesses))
+    random_tie_breakers = rng.random(len(fitnesses))
+    if secondary_scores is None:
+        return np.lexsort((random_tie_breakers, fitnesses))
+    secondary_scores = np.asarray(secondary_scores)
+    if secondary_scores.shape != fitnesses.shape:
+        raise ValueError("Fitnesses and secondary scores must have matching shapes.")
+    return np.lexsort(
+        (random_tie_breakers, -secondary_scores, fitnesses)
+    )
 
 
 def sample_de_indices(count, population_size, rng):
@@ -415,12 +447,34 @@ def update_de_population(
     target_indices,
     rng,
     neutral_acceptance=DE_NEUTRAL_ACCEPTANCE,
+    population_secondary=None,
+    child_secondary=None,
 ):
-    """Keep the best trial per target, including occasional neutral moves."""
+    """Keep better trials per target, preferring secondary gains on score ties."""
+    if (population_secondary is None) != (child_secondary is None):
+        raise ValueError("Population and child secondary scores must be provided together.")
+    if population_secondary is not None:
+        population_secondary = np.asarray(population_secondary)
+        child_secondary = np.asarray(child_secondary)
+        if population_secondary.shape != population_fitness.shape:
+            raise ValueError("Population secondary scores must match population fitness.")
+        if child_secondary.shape != child_fitness.shape:
+            raise ValueError("Child secondary scores must match child fitness.")
     novel = np.any(children != population[target_indices], axis=1)
-    order = np.lexsort(
-        (rng.random(len(child_fitness)), ~novel, child_fitness, target_indices)
-    )
+    if population_secondary is None or child_secondary is None:
+        order = np.lexsort(
+            (rng.random(len(child_fitness)), ~novel, child_fitness, target_indices)
+        )
+    else:
+        order = np.lexsort(
+            (
+                rng.random(len(child_fitness)),
+                ~novel,
+                -child_secondary,
+                child_fitness,
+                target_indices,
+            )
+        )
     ordered_targets = target_indices[order]
     best_rows = order[
         np.concatenate(
@@ -434,16 +488,28 @@ def update_de_population(
     best_fitness = child_fitness[best_rows]
     target_fitness = population_fitness[best_targets]
     improving = best_fitness < target_fitness
+    equal_fitness = best_fitness == target_fitness
+    if population_secondary is None or child_secondary is None:
+        secondary_improving = np.zeros(len(best_rows), dtype=bool)
+        equal_secondary = np.ones(len(best_rows), dtype=bool)
+    else:
+        best_secondary = child_secondary[best_rows]
+        target_secondary = population_secondary[best_targets]
+        secondary_improving = equal_fitness & (best_secondary > target_secondary)
+        equal_secondary = best_secondary == target_secondary
     neutral = (
-        (best_fitness == target_fitness)
+        equal_fitness
+        & equal_secondary
         & novel[best_rows]
         & (rng.random(len(best_rows)) < neutral_acceptance)
     )
-    accepted = improving | neutral
+    accepted = improving | secondary_improving | neutral
     accepted_targets = best_targets[accepted]
     accepted_rows = best_rows[accepted]
     population[accepted_targets] = children[accepted_rows]
     population_fitness[accepted_targets] = child_fitness[accepted_rows]
+    if population_secondary is not None and child_secondary is not None:
+        population_secondary[accepted_targets] = child_secondary[accepted_rows]
 
 
 def adapt_de_step_multiplier(step_multiplier, success_rate):
@@ -471,20 +537,50 @@ def block_annealing_temperature(base_temperature, generation, restart_after):
 
 
 def parent_improvement_rate(
-    child_fitness, parent_fitness, excluded_rows=(), neutral_acceptance=0.0
+    child_fitness,
+    parent_fitness,
+    excluded_rows=(),
+    neutral_acceptance=0.0,
+    child_secondary=None,
+    parent_secondary=None,
 ):
     """Estimate accepted-trial rate, including optional neutral drift."""
     child_fitness = np.asarray(child_fitness)
     parent_fitness = np.asarray(parent_fitness)
     if child_fitness.shape != parent_fitness.shape:
         raise ValueError("Child and parent fitness arrays must have matching shapes.")
+    if child_secondary is not None:
+        child_secondary = np.asarray(child_secondary)
+    if parent_secondary is not None:
+        parent_secondary = np.asarray(parent_secondary)
+    if (child_secondary is None) != (parent_secondary is None):
+        raise ValueError("Child and parent secondary scores must be provided together.")
+    if child_secondary is not None and (
+        child_secondary.shape != child_fitness.shape
+        or parent_secondary.shape != parent_fitness.shape
+    ):
+        raise ValueError("Secondary score arrays must match the fitness shapes.")
     eligible = np.ones(len(child_fitness), dtype=bool)
     eligible[np.asarray(excluded_rows, dtype=np.int64)] = False
     if not np.any(eligible):
         return 0.0
     improving = child_fitness[eligible] < parent_fitness[eligible]
-    neutral = child_fitness[eligible] == parent_fitness[eligible]
-    return float(np.mean(improving + neutral_acceptance * neutral))
+    equal_fitness = child_fitness[eligible] == parent_fitness[eligible]
+    if child_secondary is None or parent_secondary is None:
+        secondary_improving = np.zeros(np.count_nonzero(eligible), dtype=bool)
+        neutral = equal_fitness
+    else:
+        secondary_improving = (
+            equal_fitness
+            & (child_secondary[eligible] > parent_secondary[eligible])
+        )
+        neutral = equal_fitness & (
+            child_secondary[eligible] == parent_secondary[eligible]
+        )
+    return float(
+        np.mean(improving | secondary_improving)
+        + neutral_acceptance * np.mean(neutral)
+    )
 
 
 def make_block_proposals(
@@ -632,19 +728,41 @@ def main():
         search_upper[3 * n_sat :] = np.minimum(
             search_upper[3 * n_sat :], args.velocity_bound
         )
-        def score_batch(candidates):
+        def score_batch(candidates, return_observation_scores=False):
             enforce_observation_bounds(candidates, position_maps, n_sat)
             candidates[...] = canonicalize_candidates(candidates, n_sat)
-            return gpu_fitness_batch(candidates, reference).detach().cpu().numpy()
+            result = gpu_fitness_batch(
+                candidates,
+                reference,
+                return_observation_scores=return_observation_scores,
+            )
+            if return_observation_scores:
+                fitnesses, observation_scores = result
+                return (
+                    fitnesses.detach().cpu().numpy(),
+                    observation_scores.detach().cpu().numpy(),
+                )
+            return result.detach().cpu().numpy()
 
-        def score_cma_batch(candidates):
+        def score_cma_batch(candidates, return_observation_scores=False):
             scores = []
+            observations = []
             for start in range(0, len(candidates), args.batch_size):
                 batch = candidates[start : start + args.batch_size]
                 enforce_observation_bounds(batch, position_maps, n_sat)
-                scores.append(
-                    gpu_fitness_batch(batch, reference).detach().cpu().numpy()
+                result = gpu_fitness_batch(
+                    batch,
+                    reference,
+                    return_observation_scores=return_observation_scores,
                 )
+                if return_observation_scores:
+                    fitnesses, observation_scores = result
+                    scores.append(fitnesses.detach().cpu().numpy())
+                    observations.append(observation_scores.detach().cpu().numpy())
+                else:
+                    scores.append(result.detach().cpu().numpy())
+            if return_observation_scores:
+                return np.concatenate(scores), np.concatenate(observations)
             return np.concatenate(scores)
 
         coordinate_width = search_upper - search_lower
@@ -681,13 +799,20 @@ def main():
                 + cma_strategy.sigma * initial_directions
             )
             population = denormalize_candidates(initial_normalized)
-            population_fitness = score_cma_batch(population)
+            population_fitness, observation_scores = score_cma_batch(
+                population, return_observation_scores=True
+            )
+            population_secondary = observation_scores.sum(axis=1)
             feasible_normalized = normalize_candidates(population)
             effective_directions = (
                 feasible_normalized - cma_strategy.mean
             ) / cma_strategy.sigma
             cma_strategy.tell(
-                initial_z, effective_directions, population_fitness, rng
+                initial_z,
+                effective_directions,
+                population_fitness,
+                rng,
+                secondary_scores=population_secondary,
             )
         else:
             population = random_candidates(
@@ -713,12 +838,18 @@ def main():
             )
             population[0] = best_x
             population = canonicalize_candidates(population, n_sat)
-            population_fitness = score_batch(population)
+            population_fitness, observation_scores = score_batch(
+                population, return_observation_scores=True
+            )
+            population_secondary = observation_scores.sum(axis=1)
         best_found_at = 0
         scored = len(population) + 1
         stagnant_generations = 0
         stagnant_evaluations = 0
         cma_restart_count = 0
+        heuristic_restart_count = 0
+        heuristic_scale = 1.0
+        heuristic_guidance = None
         step_multiplier = 1.0
 
         improved = int(np.argmin(population_fitness))
@@ -770,6 +901,7 @@ def main():
                     best_x,
                 )
                 parent_fitness = population_fitness[target_indices]
+                parent_secondary = population_secondary[target_indices]
             elif args.algorithm == "lm-cma-es":
                 batch_size = min(args.population_size, args.iterations - scored)
                 lm_z, lm_directions = cma_strategy.ask(batch_size, rng)
@@ -777,12 +909,48 @@ def main():
                     cma_strategy.mean + cma_strategy.sigma * lm_directions
                 )
                 children = denormalize_candidates(normalized)
-                child_fitness = score_cma_batch(children)
+                child_fitness, child_observations = score_cma_batch(
+                    children, return_observation_scores=True
+                )
+                child_secondary = child_observations.sum(axis=1)
                 feasible_normalized = normalize_candidates(children)
                 effective_lm_directions = (
                     feasible_normalized - cma_strategy.mean
                 ) / cma_strategy.sigma
                 parent_fitness = np.empty(batch_size, dtype=np.float64)
+                parent_secondary = np.empty(batch_size, dtype=np.float64)
+                immigrant_rows = np.empty(0, dtype=np.int64)
+                target_indices = None
+            elif args.algorithm == "heuristic":
+                if heuristic_guidance is None or generation % 25 == 0:
+                    heuristic_guidance = satellite_coverage_guidance(
+                        best_x, position_maps, reference.grid_size, n_sat
+                    )
+                weakest_observation, _, _, satellite_weights = heuristic_guidance
+                candidate_parents = np.repeat(
+                    best_x[None, :], batch_size, axis=0
+                )
+                diverse_parent_count = batch_size // 3
+                if diverse_parent_count:
+                    diverse_parent_indices = rng.integers(
+                        len(population), size=diverse_parent_count
+                    )
+                    candidate_parents[:diverse_parent_count] = population[
+                        diverse_parent_indices
+                    ]
+                children = make_coverage_guided_offspring(
+                    candidate_parents,
+                    batch_size,
+                    search_lower,
+                    search_upper,
+                    n_sat,
+                    mutation_map,
+                    satellite_weights,
+                    rng,
+                    step_multiplier=heuristic_scale,
+                )
+                parent_fitness = np.full(batch_size, best_fitness)
+                parent_secondary = np.full(batch_size, 0.0)
                 immigrant_rows = np.empty(0, dtype=np.int64)
                 target_indices = None
             elif args.algorithm == "block-anneal":
@@ -812,9 +980,15 @@ def main():
                     current_temperature,
                 )
                 parent_fitness = population_fitness[target_indices]
+                parent_secondary = population_secondary[target_indices]
                 immigrant_rows = np.empty(0, dtype=np.int64)
             else:
-                children, parent_fitness, immigrant_rows = make_offspring(
+                (
+                    children,
+                    parent_fitness,
+                    immigrant_rows,
+                    parent_secondary,
+                ) = make_offspring(
                     population,
                     population_fitness,
                     batch_size,
@@ -826,15 +1000,19 @@ def main():
                     rng,
                     args.temperature,
                     step_multiplier,
+                    secondary_scores=population_secondary,
                 )
                 target_indices = None
-            if args.algorithm in ("de", "genetic", "block-anneal"):
+            if args.algorithm in ("de", "genetic", "block-anneal", "heuristic"):
                 children = canonicalize_candidates(children, n_sat)
             if args.algorithm != "lm-cma-es":
-                child_fitness = score_batch(children)
+                child_fitness, child_observations = score_batch(
+                    children, return_observation_scores=True
+                )
+                child_secondary = child_observations.sum(axis=1)
             scored += batch_size
 
-            if args.algorithm in ("lm-cma-es", "block-anneal"):
+            if args.algorithm in ("lm-cma-es", "block-anneal", "heuristic"):
                 success_rate = 0.0
             else:
                 neutral_acceptance = (
@@ -845,15 +1023,25 @@ def main():
                     parent_fitness,
                     immigrant_rows,
                     neutral_acceptance,
+                    child_secondary=child_secondary,
+                    parent_secondary=parent_secondary,
                 )
 
-            child_best = int(np.argmin(child_fitness))
+            child_best = int(
+                rank_fitnesses(child_fitness, rng, child_secondary)[0]
+            )
             if child_fitness[child_best] < best_fitness:
                 best_x = children[child_best].copy()
                 best_fitness = float(child_fitness[child_best])
                 best_found_at = scored
                 stagnant_generations = 0
                 stagnant_evaluations = 0
+                if args.algorithm == "heuristic":
+                    heuristic_scale = 1.0
+                    heuristic_restart_count = 0
+                    heuristic_guidance = satellite_coverage_guidance(
+                        best_x, position_maps, reference.grid_size, n_sat
+                    )
                 if args.algorithm == "genetic":
                     step_multiplier = max(0.5, step_multiplier * 0.85)
                 save_candidate_progress(
@@ -888,31 +1076,94 @@ def main():
                     child_fitness,
                     target_indices,
                     rng,
+                    population_secondary=population_secondary,
+                    child_secondary=child_secondary,
                 )
             elif args.algorithm == "block-anneal":
                 deltas = child_fitness - parent_fitness
-                acceptance = np.ones(batch_size, dtype=bool)
+                acceptance = deltas < 0
                 worse = deltas > 0
                 acceptance[worse] = (
                     rng.random(int(worse.sum()))
                     < np.exp(-deltas[worse] / max(current_temperature, 1e-12))
                 )
+                equal = deltas == 0
+                secondary_improvement = (
+                    child_secondary[equal] > parent_secondary[equal]
+                )
+                neutral = child_secondary[equal] == parent_secondary[equal]
+                equal_acceptance = secondary_improvement.copy()
+                equal_acceptance[neutral] = (
+                    rng.random(int(neutral.sum())) < DE_NEUTRAL_ACCEPTANCE
+                )
+                acceptance[equal] = equal_acceptance
                 accepted_rows = np.flatnonzero(acceptance)
                 accepted_targets = target_indices[accepted_rows]
                 population[accepted_targets] = children[accepted_rows]
                 population_fitness[accepted_targets] = child_fitness[accepted_rows]
+                population_secondary[accepted_targets] = child_secondary[accepted_rows]
             elif args.algorithm == "genetic":
                 combined_x = np.concatenate((population, children), axis=0)
                 combined_fitness = np.concatenate((population_fitness, child_fitness))
-                population, population_fitness = select_population(
-                    combined_x, combined_fitness, args.population_size, rng
+                combined_secondary = np.concatenate(
+                    (population_secondary, child_secondary)
+                )
+                (
+                    population,
+                    population_fitness,
+                    population_secondary,
+                ) = select_population(
+                    combined_x,
+                    combined_fitness,
+                    args.population_size,
+                    rng,
+                    secondary_scores=combined_secondary,
+                )
+            elif args.algorithm == "heuristic":
+                combined_x = np.concatenate((population, children), axis=0)
+                combined_fitness = np.concatenate((population_fitness, child_fitness))
+                combined_secondary = np.concatenate(
+                    (population_secondary, child_secondary)
+                )
+                (
+                    population,
+                    population_fitness,
+                    population_secondary,
+                ) = select_population(
+                    combined_x,
+                    combined_fitness,
+                    args.population_size,
+                    rng,
+                    secondary_scores=combined_secondary,
                 )
             elif args.algorithm == "lm-cma-es" and batch_size == args.population_size:
                 cma_strategy.tell(
-                    lm_z, effective_lm_directions, child_fitness, rng
+                    lm_z,
+                    effective_lm_directions,
+                    child_fitness,
+                    rng,
+                    secondary_scores=child_secondary,
                 )
 
-            if args.algorithm == "lm-cma-es":
+            if args.algorithm == "heuristic":
+                if (
+                    stagnant_generations >= args.restart_after
+                    and scored < args.iterations
+                ):
+                    heuristic_scales = (1.0, 2.0, 4.0)
+                    heuristic_scale = heuristic_scales[
+                        heuristic_restart_count % len(heuristic_scales)
+                    ]
+                    heuristic_restart_count += 1
+                    stagnant_generations = 0
+                    heuristic_guidance = None
+                    print(
+                        f"Coverage-heuristic restart {heuristic_restart_count}; "
+                        f"mutation scale {heuristic_scale:g}; "
+                        f"weakest observation {weakest_observation}",
+                        flush=True,
+                    )
+            elif args.algorithm == "lm-cma-es":
                 cma_restart_after = args.restart_after * args.batch_size
                 if (
                     stagnant_evaluations >= cma_restart_after
@@ -961,19 +1212,34 @@ def main():
                         temperature=1.5,
                     )
                     refreshed = canonicalize_candidates(refreshed, n_sat)
-                refreshed_fitness = score_batch(refreshed)
+                refreshed_fitness, refreshed_observations = score_batch(
+                    refreshed, return_observation_scores=True
+                )
+                refreshed_secondary = refreshed_observations.sum(axis=1)
                 scored += len(refreshed)
                 if args.algorithm in ("de", "block-anneal"):
                     worst = np.argsort(population_fitness)[-refresh_count:]
                     population[worst] = refreshed
                     population_fitness[worst] = refreshed_fitness
+                    population_secondary[worst] = refreshed_secondary
                 else:
                     combined_x = np.concatenate((population, refreshed), axis=0)
                     combined_fitness = np.concatenate(
                         (population_fitness, refreshed_fitness)
                     )
-                    population, population_fitness = select_population(
-                        combined_x, combined_fitness, args.population_size, rng
+                    combined_secondary = np.concatenate(
+                        (population_secondary, refreshed_secondary)
+                    )
+                    (
+                        population,
+                        population_fitness,
+                        population_secondary,
+                    ) = select_population(
+                        combined_x,
+                        combined_fitness,
+                        args.population_size,
+                        rng,
+                        secondary_scores=combined_secondary,
                     )
                     if args.algorithm == "genetic":
                         explorer_count = min(
@@ -988,7 +1254,16 @@ def main():
                             population_fitness[-explorer_count:] = refreshed_fitness[
                                 explorer_start : explorer_start + explorer_count
                             ]
-                refreshed_best = int(np.argmin(refreshed_fitness))
+                            population_secondary[-explorer_count:] = (
+                                refreshed_secondary[
+                                    explorer_start : explorer_start + explorer_count
+                                ]
+                            )
+                refreshed_best = int(
+                    rank_fitnesses(
+                        refreshed_fitness, rng, refreshed_secondary
+                    )[0]
+                )
                 if refreshed_fitness[refreshed_best] < best_fitness:
                     best_x = refreshed[refreshed_best].copy()
                     best_fitness = float(refreshed_fitness[refreshed_best])
@@ -1018,7 +1293,12 @@ def main():
                     else population_fitness.min()
                 )
                 progress_detail = (
-                    f"sigma {cma_strategy.sigma:.4g}"
+                    (
+                        f"weakest observation {weakest_observation}; "
+                        f"mutation scale {heuristic_scale:g}"
+                    )
+                    if args.algorithm == "heuristic"
+                    else f"sigma {cma_strategy.sigma:.4g}"
                     if args.algorithm == "lm-cma-es"
                     else (
                         f"temperature {current_temperature:.4g}"

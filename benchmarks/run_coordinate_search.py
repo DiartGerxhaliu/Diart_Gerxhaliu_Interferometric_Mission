@@ -11,7 +11,11 @@ from types import SimpleNamespace
 import numpy as np
 
 from benchmarks.build_submission import save_candidate_progress
-from benchmarks.run_optimization import VERIFY_REFERENCE
+from benchmarks.run_optimization import (
+    DE_NEUTRAL_ACCEPTANCE,
+    VERIFY_REFERENCE,
+    rank_fitnesses,
+)
 from src.evaluation.cases import CASE_ORDER, get_case
 from src.evaluation.constraints import (
     enforce_observation_bounds,
@@ -242,6 +246,8 @@ def main():
         incumbent_fitness = float(saved["fitness"])
     current = incumbent.copy()
     current_fitness = incumbent_fitness
+    current_secondary = 0.0
+    incumbent_secondary = 0.0
 
     rng = np.random.default_rng(args.seed)
     evaluations_done = 0
@@ -368,19 +374,39 @@ def main():
 
         from src.evaluation.gpu import gpu_fitness_batch
 
-        def score_batch(candidates):
+        def score_batch(candidates, return_observation_scores=False):
             enforce_observation_bounds(candidates, position_maps, n_sat)
-            return gpu_fitness_batch(candidates, reference).detach().cpu().numpy()
+            result = gpu_fitness_batch(
+                candidates,
+                reference,
+                return_observation_scores=return_observation_scores,
+            )
+            if return_observation_scores:
+                fitnesses, observations = result
+                return (
+                    fitnesses.detach().cpu().numpy(),
+                    observations.detach().cpu().numpy(),
+                )
+            return result.detach().cpu().numpy()
 
         enforce_observation_bounds(incumbent, position_maps, n_sat)
         enforce_observation_bounds(current, position_maps, n_sat)
-        incumbent_fitness = float(score_batch(incumbent)[0])
+        incumbent_fitnesses, incumbent_observations = score_batch(
+            incumbent, return_observation_scores=True
+        )
+        incumbent_fitness = float(incumbent_fitnesses[0])
+        incumbent_secondary = float(incumbent_observations[0].sum())
         local_evaluations += 1
         evaluations_done += 1
         if np.array_equal(current, incumbent):
             current_fitness = incumbent_fitness
+            current_secondary = incumbent_secondary
         else:
-            current_fitness = float(score_batch(current)[0])
+            current_fitnesses, current_observations = score_batch(
+                current, return_observation_scores=True
+            )
+            current_fitness = float(current_fitnesses[0])
+            current_secondary = float(current_observations[0].sum())
             local_evaluations += 1
             evaluations_done += 1
         best_found_at = evaluations_done
@@ -412,12 +438,17 @@ def main():
                         incumbent, lower, upper, n_sat, rng
                     )
                 )
-                current_fitness = float(score_batch(current)[0])
+                current_fitnesses, current_observations = score_batch(
+                    current, return_observation_scores=True
+                )
+                current_fitness = float(current_fitnesses[0])
+                current_secondary = float(current_observations[0].sum())
                 local_evaluations += 1
                 evaluations_done += 1
                 if current_fitness < incumbent_fitness:
                     incumbent = current.copy()
                     incumbent_fitness = current_fitness
+                    incumbent_secondary = current_secondary
                     best_found_at = evaluations_done
                     evaluations_without_improvement = 0
                     save_candidate_progress(
@@ -468,15 +499,21 @@ def main():
             )
             candidates = candidates[:count]
             count = len(candidates)
-            fitnesses = score_batch(candidates)
+            fitnesses, observation_scores = score_batch(
+                candidates, return_observation_scores=True
+            )
+            secondary_scores = observation_scores.sum(axis=1)
             local_evaluations += count
             evaluations_done += count
-            best_index = int(np.argmin(fitnesses))
+            best_index = int(
+                rank_fitnesses(fitnesses, rng, secondary_scores)[0]
+            )
             batch_best = float(fitnesses[best_index])
             improved_incumbent = batch_best < incumbent_fitness
             if improved_incumbent:
                 incumbent_fitness = batch_best
                 incumbent = candidates[best_index].copy()
+                incumbent_secondary = float(secondary_scores[best_index])
                 best_found_at = evaluations_done
                 evaluations_without_improvement = 0
                 move_level = 0
@@ -495,18 +532,47 @@ def main():
                     f"evaluation {evaluations_done:,}: best {incumbent_fitness:.12g}",
                     flush=True,
                 )
-            if batch_best < current_fitness:
+            batch_secondary = float(secondary_scores[best_index])
+            if batch_best < current_fitness or (
+                batch_best == current_fitness
+                and batch_secondary > current_secondary
+            ):
                 current_fitness = batch_best
+                current_secondary = batch_secondary
                 current = candidates[best_index].copy()
             else:
                 near_best = np.flatnonzero(fitnesses <= batch_best + 0.01)
                 proposal_index = int(rng.choice(near_best))
+                proposal_fitness_level = fitnesses[proposal_index]
+                same_level = near_best[
+                    fitnesses[near_best] == proposal_fitness_level
+                ]
+                best_secondary = secondary_scores[same_level].max()
+                tied_secondary = same_level[
+                    secondary_scores[same_level] == best_secondary
+                ]
+                proposal_index = int(rng.choice(tied_secondary))
                 proposal_fitness = float(fitnesses[proposal_index])
                 increase = proposal_fitness - current_fitness
-                if increase <= 0 or rng.random() < np.exp(
-                    -increase / args.anneal_temperature
-                ):
+                proposal_secondary = float(secondary_scores[proposal_index])
+                secondary_change = proposal_secondary - current_secondary
+                if increase < 0:
+                    accept_proposal = True
+                elif increase > 0:
+                    accept_proposal = rng.random() < np.exp(
+                        -increase / args.anneal_temperature
+                    )
+                elif secondary_change > 0:
+                    accept_proposal = True
+                elif secondary_change == 0:
+                    accept_proposal = rng.random() < DE_NEUTRAL_ACCEPTANCE
+                else:
+                    accept_proposal = rng.random() < np.exp(
+                        secondary_change / args.anneal_temperature
+                    )
+                if accept_proposal:
                     current_fitness = proposal_fitness
+                    current_secondary = proposal_secondary
                     current = candidates[proposal_index].copy()
 
             if not improved_incumbent:

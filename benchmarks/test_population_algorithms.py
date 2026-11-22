@@ -202,6 +202,29 @@ class PopulationAlgorithmTests(unittest.TestCase):
 
         np.testing.assert_array_equal(population[0], children[0])
 
+    def test_de_prefers_secondary_gain_when_official_fitness_is_tied(self):
+        population = np.zeros((1, 2))
+        population_fitness = np.zeros(1)
+        population_secondary = np.asarray([1.0])
+        children = np.asarray([[1.0, 0.0]])
+        child_fitness = np.zeros(1)
+        child_secondary = np.asarray([2.0])
+
+        update_de_population(
+            population,
+            population_fitness,
+            children,
+            child_fitness,
+            np.asarray([0]),
+            np.random.default_rng(151),
+            neutral_acceptance=0.0,
+            population_secondary=population_secondary,
+            child_secondary=child_secondary,
+        )
+
+        np.testing.assert_array_equal(population[0], children[0])
+        np.testing.assert_array_equal(population_secondary, [2.0])
+
     def test_equal_fitnesses_receive_randomized_genetic_ranks(self):
         fitnesses = np.ones(32)
         first = rank_fitnesses(fitnesses, np.random.default_rng(16))
@@ -209,6 +232,27 @@ class PopulationAlgorithmTests(unittest.TestCase):
 
         np.testing.assert_array_equal(np.sort(first), np.arange(len(fitnesses)))
         self.assertFalse(np.array_equal(first, second))
+
+    def test_secondary_scores_rank_candidates_only_when_official_scores_tie(self):
+        fitnesses = np.asarray([-1.0, -1.0, -0.5])
+        secondary = np.asarray([1.0, 2.0, 100.0])
+
+        order = rank_fitnesses(
+            fitnesses, np.random.default_rng(161), secondary
+        )
+
+        np.testing.assert_array_equal(order, [1, 0, 2])
+
+    def test_secondary_gain_counts_as_parent_improvement(self):
+        self.assertEqual(
+            parent_improvement_rate(
+                [0.0],
+                [0.0],
+                child_secondary=[2.0],
+                parent_secondary=[1.0],
+            ),
+            1.0,
+        )
 
     def test_adaptive_mutation_scales_stay_bounded_on_plateaus(self):
         de_scale = 1.0

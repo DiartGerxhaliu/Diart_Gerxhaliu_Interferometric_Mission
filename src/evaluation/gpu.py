@@ -30,7 +30,12 @@ def autocorrelation_fill(projection):
     return nonzero.to(torch.float64) / (output_size ** 2)
 
 
-def gpu_fitness_batch(candidates, udp, device="cuda"):
+def gpu_fitness_batch(
+    candidates,
+    udp,
+    device="cuda",
+    return_observation_scores=False,
+):
     """
     Evaluate a batch of candidate satellite formations
     using PyTorch on the GPU.
@@ -160,4 +165,7 @@ def gpu_fitness_batch(candidates, udp, device="cuda"):
     # ESA objective: minimize the negative weakest observation.
     scores = torch.stack(observation_scores, dim=1)
 
-    return -scores.min(dim=1).values
+    fitness = -scores.min(dim=1).values
+    if return_observation_scores:
+        return fitness, scores
+    return fitness

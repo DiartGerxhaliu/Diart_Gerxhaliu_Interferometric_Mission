@@ -26,6 +26,7 @@ ALGORITHMS = (
     "genetic",
     "block-anneal",
     "lm-cma-es",
+    "heuristic",
 )
 DEFAULT_ALGORITHMS = {
     "easy": "coordinate-search",
@@ -39,6 +40,7 @@ SEARCH_CYCLES = {
         "genetic",
         "block-anneal",
         "lm-cma-es",
+        "heuristic",
     ),
     "medium": (
         "de",
@@ -46,6 +48,7 @@ SEARCH_CYCLES = {
         "genetic",
         "block-anneal",
         "lm-cma-es",
+        "heuristic",
     ),
     "hard": (
         "de",
@@ -53,6 +56,7 @@ SEARCH_CYCLES = {
         "genetic",
         "block-anneal",
         "lm-cma-es",
+        "heuristic",
     ),
 }
 
@@ -72,9 +76,18 @@ def parse_args():
         "--algorithm",
         choices=("auto",) + ALGORITHMS,
         default="auto",
-        help="auto switches algorithms after a segment with no improvement",
+        help="auto rotates through the case's algorithms every segment",
     )
     parser.add_argument("--batch-size", type=int, default=2048)
+    parser.add_argument(
+        "--iterations",
+        type=int,
+        default=None,
+        help=(
+            "evaluation limit per segment (overrides the algorithm's default; "
+            "auto applies this limit to each algorithm segment)"
+        ),
+    )
     parser.add_argument("--seed", type=int, default=None)
     parser.add_argument(
         "--target-score",
@@ -154,6 +167,8 @@ def build_search_command(args, algorithm=None):
     coordinate_search = selected_algorithm == "coordinate-search"
     if args.rng_jump < 0:
         raise ValueError("rng-jump must be non-negative.")
+    if args.iterations is not None and args.iterations <= 0:
+        raise ValueError("iterations must be positive.")
     if (
         coordinate_search
         and args.algorithm != "auto"
@@ -169,6 +184,8 @@ def build_search_command(args, algorithm=None):
             or (args.case == "hard" and selected_algorithm == "de")
             else 2_000_000
         )
+    if args.iterations is not None:
+        budget = args.iterations
     if args.batch_size <= 0:
         raise ValueError("batch-size must be positive.")
     population_size = args.population_size

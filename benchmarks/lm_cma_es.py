@@ -80,7 +80,7 @@ class LimitedMemoryCMAES:
             )
         return z, directions
 
-    def tell(self, z, directions, fitnesses, rng):
+    def tell(self, z, directions, fitnesses, rng, secondary_scores=None):
         """Update the mean, limited-memory paths, and global step size."""
         expected_shape = (self.population_size, self.dimension)
         if z.shape != expected_shape or directions.shape != expected_shape:
@@ -94,11 +94,25 @@ class LimitedMemoryCMAES:
             )
         if not np.isfinite(fitnesses).all():
             raise ValueError("Fitnesses must be finite.")
-        if np.all(fitnesses == fitnesses[0]):
+        if secondary_scores is None:
+            secondary_scores = np.zeros(self.population_size, dtype=np.float64)
+        else:
+            secondary_scores = np.asarray(secondary_scores, dtype=np.float64)
+            if secondary_scores.shape != (self.population_size,):
+                raise ValueError(
+                    f"Secondary scores must have shape ({self.population_size},)."
+                )
+            if not np.isfinite(secondary_scores).all():
+                raise ValueError("Secondary scores must be finite.")
+        if np.all(fitnesses == fitnesses[0]) and np.all(
+            secondary_scores == secondary_scores[0]
+        ):
             self.generation += 1
             return
 
-        order = np.lexsort((rng.random(self.population_size), fitnesses))
+        order = np.lexsort(
+            (rng.random(self.population_size), -secondary_scores, fitnesses)
+        )
         selected = order[: self.n_parents]
         weighted_z = self.weights @ z[selected]
         weighted_directions = self.weights @ directions[selected]
