@@ -1,0 +1,117 @@
+Started: 2026-11-23T05:17:00+01:00
+Segment: 98; case: hard; algorithm: coordinate-search
+Starting best candidate/checkpoint: -1.54491374182
+
+Resuming after 198,695,186 evaluations; best -1.54491374182; seed 239817
+progress 14/5,000,000; best -1.54491374182; boundary moves per proposal 12
+Randomized 2/40 satellite states after 1,000,000 evaluations without a new best; score remains -1.54491374182
+progress 51,215/5,000,000; best -1.54491374182; boundary moves per proposal 12
+progress 102,415/5,000,000; best -1.54491374182; boundary moves per proposal 8
+progress 153,615/5,000,000; best -1.54491374182; boundary moves per proposal 5
+progress 204,815/5,000,000; best -1.54491374182; boundary moves per proposal 3
+progress 256,015/5,000,000; best -1.54491374182; boundary moves per proposal 1
+progress 307,215/5,000,000; best -1.54491374182; boundary moves per proposal 12
+progress 358,415/5,000,000; best -1.54491374182; boundary moves per proposal 8
+progress 409,615/5,000,000; best -1.54491374182; boundary moves per proposal 5
+progress 460,815/5,000,000; best -1.54491374182; boundary moves per proposal 3
+progress 512,015/5,000,000; best -1.54491374182; boundary moves per proposal 2
+progress 563,215/5,000,000; best -1.54491374182; boundary moves per proposal 20
+progress 614,415/5,000,000; best -1.54491374182; boundary moves per proposal 8
+progress 665,615/5,000,000; best -1.54491374182; boundary moves per proposal 5
+progress 716,815/5,000,000; best -1.54491374182; boundary moves per proposal 3
+progress 768,015/5,000,000; best -1.54491374182; boundary moves per proposal 2
+progress 819,215/5,000,000; best -1.54491374182; boundary moves per proposal 20
+progress 870,415/5,000,000; best -1.54491374182; boundary moves per proposal 12
+progress 921,615/5,000,000; best -1.54491374182; boundary moves per proposal 5
+progress 972,815/5,000,000; best -1.54491374182; boundary moves per proposal 3
+Randomized 4/40 satellite states after 1,000,000 evaluations without a new best; score remains -1.54491374182
+progress 1,024,591/5,000,000; best -1.54491374182; boundary moves per proposal 5
+progress 1,075,791/5,000,000; best -1.54491374182; boundary moves per proposal 2
+progress 1,126,991/5,000,000; best -1.54491374182; boundary moves per proposal 20
+progress 1,178,191/5,000,000; best -1.54491374182; boundary moves per proposal 12
+progress 1,229,391/5,000,000; best -1.54491374182; boundary moves per proposal 8
+progress 1,280,591/5,000,000; best -1.54491374182; boundary moves per proposal 5
+progress 1,331,791/5,000,000; best -1.54491374182; boundary moves per proposal 3
+progress 1,382,991/5,000,000; best -1.54491374182; boundary moves per proposal 1
+progress 1,434,191/5,000,000; best -1.54491374182; boundary moves per proposal 12
+progress 1,485,391/5,000,000; best -1.54491374182; boundary moves per proposal 8
+progress 1,536,591/5,000,000; best -1.54491374182; boundary moves per proposal 5
+progress 1,587,791/5,000,000; best -1.54491374182; boundary moves per proposal 3
+progress 1,638,991/5,000,000; best -1.54491374182; boundary moves per proposal 2
+progress 1,690,191/5,000,000; best -1.54491374182; boundary moves per proposal 20
+progress 1,741,391/5,000,000; best -1.54491374182; boundary moves per proposal 8
+progress 1,792,591/5,000,000; best -1.54491374182; boundary moves per proposal 5
+progress 1,843,791/5,000,000; best -1.54491374182; boundary moves per proposal 3
+progress 1,894,991/5,000,000; best -1.54491374182; boundary moves per proposal 2
+progress 1,946,191/5,000,000; best -1.54491374182; boundary moves per proposal 20
+progress 1,997,391/5,000,000; best -1.54491374182; boundary moves per proposal 12
+Randomized 9/40 satellite states after 1,000,000 evaluations without a new best; score remains -1.54491374182
+progress 2,049,167/5,000,000; best -1.54491374182; boundary moves per proposal 12
+progress 2,100,367/5,000,000; best -1.54491374182; boundary moves per proposal 8
+progress 2,151,567/5,000,000; best -1.54491374182; boundary moves per proposal 5
+progress 2,202,767/5,000,000; best -1.54491374182; boundary moves per proposal 2
+progress 2,253,967/5,000,000; best -1.54491374182; boundary moves per proposal 20
+progress 2,305,167/5,000,000; best -1.54491374182; boundary moves per proposal 12
+progress 2,356,367/5,000,000; best -1.54491374182; boundary moves per proposal 8
+progress 2,407,567/5,000,000; best -1.54491374182; boundary moves per proposal 5
+progress 2,458,767/5,000,000; best -1.54491374182; boundary moves per proposal 3
+progress 2,509,967/5,000,000; best -1.54491374182; boundary moves per proposal 1
+progress 2,561,167/5,000,000; best -1.54491374182; boundary moves per proposal 12
+progress 2,612,367/5,000,000; best -1.54491374182; boundary moves per proposal 8
+progress 2,663,567/5,000,000; best -1.54491374182; boundary moves per proposal 5
+progress 2,714,767/5,000,000; best -1.54491374182; boundary moves per proposal 3
+progress 2,765,967/5,000,000; best -1.54491374182; boundary moves per proposal 2
+progress 2,817,167/5,000,000; best -1.54491374182; boundary moves per proposal 20
+progress 2,868,367/5,000,000; best -1.54491374182; boundary moves per proposal 8
+progress 2,919,567/5,000,000; best -1.54491374182; boundary moves per proposal 5
+progress 2,970,767/5,000,000; best -1.54491374182; boundary moves per proposal 3
+Randomized 4/40 satellite states after 1,000,000 evaluations without a new best; score remains -1.54491374182
+progress 3,022,543/5,000,000; best -1.54491374182; boundary moves per proposal 3
+progress 3,073,743/5,000,000; best -1.54491374182; boundary moves per proposal 2
+progress 3,124,943/5,000,000; best -1.54491374182; boundary moves per proposal 20
+progress 3,176,143/5,000,000; best -1.54491374182; boundary moves per proposal 12
+progress 3,227,343/5,000,000; best -1.54491374182; boundary moves per proposal 8
+progress 3,278,543/5,000,000; best -1.54491374182; boundary moves per proposal 5
+progress 3,329,743/5,000,000; best -1.54491374182; boundary moves per proposal 2
+progress 3,380,943/5,000,000; best -1.54491374182; boundary moves per proposal 20
+progress 3,432,143/5,000,000; best -1.54491374182; boundary moves per proposal 12
+progress 3,483,343/5,000,000; best -1.54491374182; boundary moves per proposal 8
+progress 3,534,543/5,000,000; best -1.54491374182; boundary moves per proposal 5
+progress 3,585,743/5,000,000; best -1.54491374182; boundary moves per proposal 3
+progress 3,636,943/5,000,000; best -1.54491374182; boundary moves per proposal 1
+progress 3,688,143/5,000,000; best -1.54491374182; boundary moves per proposal 12
+progress 3,739,343/5,000,000; best -1.54491374182; boundary moves per proposal 8
+progress 3,790,543/5,000,000; best -1.54491374182; boundary moves per proposal 5
+progress 3,841,743/5,000,000; best -1.54491374182; boundary moves per proposal 3
+progress 3,892,943/5,000,000; best -1.54491374182; boundary moves per proposal 2
+progress 3,944,143/5,000,000; best -1.54491374182; boundary moves per proposal 20
+progress 3,995,343/5,000,000; best -1.54491374182; boundary moves per proposal 8
+Randomized 2/40 satellite states after 1,000,000 evaluations without a new best; score remains -1.54491374182
+progress 4,045,071/5,000,000; best -1.54491374182; boundary moves per proposal 12
+progress 4,096,271/5,000,000; best -1.54491374182; boundary moves per proposal 5
+progress 4,147,471/5,000,000; best -1.54491374182; boundary moves per proposal 3
+progress 4,198,671/5,000,000; best -1.54491374182; boundary moves per proposal 2
+progress 4,249,871/5,000,000; best -1.54491374182; boundary moves per proposal 20
+progress 4,301,071/5,000,000; best -1.54491374182; boundary moves per proposal 12
+progress 4,352,271/5,000,000; best -1.54491374182; boundary moves per proposal 8
+progress 4,403,471/5,000,000; best -1.54491374182; boundary moves per proposal 3
+progress 4,454,671/5,000,000; best -1.54491374182; boundary moves per proposal 2
+progress 4,505,871/5,000,000; best -1.54491374182; boundary moves per proposal 20
+progress 4,557,071/5,000,000; best -1.54491374182; boundary moves per proposal 12
+progress 4,608,271/5,000,000; best -1.54491374182; boundary moves per proposal 8
+progress 4,659,471/5,000,000; best -1.54491374182; boundary moves per proposal 5
+progress 4,710,671/5,000,000; best -1.54491374182; boundary moves per proposal 2
+progress 4,761,871/5,000,000; best -1.54491374182; boundary moves per proposal 20
+progress 4,813,071/5,000,000; best -1.54491374182; boundary moves per proposal 12
+progress 4,864,271/5,000,000; best -1.54491374182; boundary moves per proposal 8
+progress 4,915,471/5,000,000; best -1.54491374182; boundary moves per proposal 5
+progress 4,966,671/5,000,000; best -1.54491374182; boundary moves per proposal 3
+CPU verification deferred to launcher.
+Final GPU fitness: -1.5449137418203451
+Total evaluations: 203695186
+Target: -1e+300
+Final fitness: -1.5449137418203451
+Checkpoint: results\cases\hard_boundary_checkpoint.npz
+
+Run-local best (including starting candidate): -1.54491374182
+Improved saved best this run: no
