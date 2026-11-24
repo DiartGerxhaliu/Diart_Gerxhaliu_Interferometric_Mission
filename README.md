@@ -1,141 +1,262 @@
 # ESA SpOC-3 Interferometric Mission Optimizer
 
-This project searches satellite initial conditions for ESA's SpOC-3 Interferometric Mission challenge. Easy, medium, and hard candidates are optimized and submitted independently.
+A CUDA-accelerated Python search system for ESA's SpOC-3 Interferometric Mission challenge. The project optimizes independent satellite formations for three official cases, verifies candidates against the supplied Heyoka CPU evaluators, and writes ESA submission JSON files.
 
-## Cases and current saved scores
+> **Current status:** the repository includes live candidate archives and search logs. The most recent committed improvement improved the medium case to `-1.8994646044021417`. The hard case remains at `-1.5449137418203451` in the latest saved candidate/log data.
 
-| Case | ESA problem ID | Orbit | Satellites | Grid | CPU-verified fitness |
+## Cases
+
+| Case | ESA problem | Orbit | Satellites | Grid | Saved fitness |
 |---|---|---|---:|---:|---:|
-| Easy | `tiny-observatory-in-dro` | DRO | 5 | 11 x 11 x 11 | `-0.142857142857` |
-| Medium | `large-observatory-in-dro` | DRO | 40 | 21 x 21 x 21 | `-1.80785246877` |
-| Hard | `large-observatory-in-halo` | HALO | 40 | 21 x 21 x 21 | `-1.40690065437` |
+| Easy | `tiny-observatory-in-dro` | DRO | 5 | 11³ | `-0.142857142857` |
+| Medium | `large-observatory-in-dro` | DRO | 40 | 21³ | `-1.8994646044021417` |
+| Hard | `large-observatory-in-halo` | HALO | 40 | 21³ | `-1.5449137418203451` |
 
-These scores were checked against the local CPU evaluators on 2026-11-21. The candidate archives in `results/cases/` and matching JSONs in `results/submissions/` are the live results and may improve after this snapshot.
+Fitness values come from the repository's candidate archives and ESA reference evaluators. Treat them as the current search incumbent, not a benchmark leaderboard.
 
-## Objective and constraints
+## How the optimizer works
 
-The decision vector contains six satellite-state blocks:
+### Decision vector
+
+Each candidate is a flat float64 vector containing six blocks:
 
 ```text
-[dx_1...dx_N, dy_1...dy_N, dz_1...dz_N,
- dvx_1...dvx_N, dvy_1...dvy_N, dvz_1...dvz_N]
+[dx satellites, dy satellites, dz satellites,
+ dvx satellites, dvy satellites, dvz satellites]
 ```
 
-The input bounds are `[-1, 1]` for positions and `[-10, 10]` for velocities. The evaluator propagates the satellites to three observation times, bins in-range positions on a 3-D grid, projects occupied cells onto XY, XZ, and YZ planes, and counts nonzero autocorrelation cells. Multiple satellites in the same grid cell count as one occupied cell.
+- Position inputs: `[-1, 1]`
+- Velocity inputs: `[-10, 10]`, with a configurable search velocity bound
+- Easy: 30 decision variables
+- Medium/hard: 240 decision variables
 
-Fitness is the negative sum of the three plane fill factors at the weakest observation. The search minimizes fitness, so more negative is better. The score is discrete: small state changes often leave all grid occupancies unchanged. For the 21-cell grids, each fill-factor change is quantized in increments of `1 / 1681` (about `0.000595`); tiny fractional score changes are not expected.
+### Evaluation
 
-All optimizers constrain every satellite to remain strictly inside the evaluator's `[-1, 1]` position bounds at all three observation times. Candidate improvements are saved immediately. The launcher updates that case's submission JSON immediately, then CPU-verifies the candidate when the segment finishes; treat a result as verified only after that check succeeds.
+[`src/evaluation/cases.py`](src/evaluation/cases.py) loads the exact ESA reference problem for each case. It validates `heyoka==3.2.0` and rejects mismatches between the supplied evaluator and the repository's case metadata.
 
-## Run a search
+[`src/evaluation/gpu.py`](src/evaluation/gpu.py) evaluates a batch of formations in PyTorch/CUDA:
 
-Run commands from the repository root in the ESA Python environment. For example:
+1. Propagates candidate satellite perturbations through the precomputed state-transition matrices.
+2. Converts positions to 3-D grid indices at the three observation times.
+3. Builds occupied volume grids.
+4. Projects the volume onto XY, XZ, and YZ planes.
+5. Measures the autocorrelation fill factor of each projection.
+6. Returns the negative sum of plane fill factors at the weakest observation.
+
+[`src/evaluation/constraints.py`](src/evaluation/constraints.py) rescales candidates to keep every propagated position strictly inside the observation bounds.
+
+### Search algorithms
+
+| Algorithm | Use |
+|---|---|
+| `de` | Whole-satellite differential evolution; strongest general-purpose population search currently in the repository. |
+| `genetic` | Rank selection with satellite crossover and broader mutations; it retained several explorers during restarts. |
+| `block-anneal` | Block/Metropolis proposals that change mostly one or two satellites. |
+| `lm-cma-es` | Limited-memory covariance adaptation in normalized coordinates with repeated restart scales. |
+| `heuristic` | Coverage-guided mutations using the weakest observation and satellite-specific grid guidance. |
+| `coordinate-search` | Directly explores grid-boundary transitions and selected-satellite changes. |
+| `auto` | Runs fixed segments and cycles through coordinate search, DE, genetic, block annealing, LM-CMA-ES, and heuristic search. |
+
+The official score is discrete. All population methods additionally rank by the sum of observation scores when the weakest-observation fitness ties, but this secondary score never replaces CPU fitness in saved candidates.
+
+## Quick start
+
+Create or activate the documented ESA environment, then run from the repository root:
 
 ```powershell
 $python = 'C:\Users\User\miniforge3\envs\esa_official_311\python.exe'
+& $python -u main.py --hard
+```
+
+The continuous launcher defaults to the case-specific algorithm:
+
+```powershell
 & $python -u main.py --easy
 & $python -u main.py --medium
 & $python -u main.py --hard
 ```
 
-`main.py` runs continuously until `Ctrl+C`; its evaluation budgets are per segment, not a total run limit. `--target-score` does not stop the continuous search: after reaching the target, the launcher removes the cutoff and continues.
-
-Recommended starting algorithms; run one GPU search at a time:
+Select an algorithm explicitly:
 
 ```powershell
-& $python -u main.py --easy --algorithm coordinate-search
-& $python -u main.py --medium --algorithm de
+& $python -u main.py --hard --algorithm genetic
 & $python -u main.py --hard --algorithm de
-```
-
-To run the coverage-guided heuristic directly:
-
-```powershell
-& $python -u main.py --hard --algorithm heuristic
-```
-
-Set its per-segment evaluation limit with `--iterations`:
-
-```powershell
-& $python -u main.py --hard --algorithm heuristic --iterations 1000000000
-```
-
-In `auto` mode, this limit applies to each algorithm segment, not to the total run. For coordinate search the launcher passes the same limit as `--evaluations`.
-
-To run LM-CMA-ES directly:
-
-```powershell
+& $python -u main.py --hard --algorithm coordinate-search
 & $python -u main.py --hard --algorithm lm-cma-es
+& $python -u main.py --hard --algorithm heuristic
+& $python -u main.py --hard --algorithm block-anneal
 ```
 
-Run the focused regression tests with:
+`main.py` writes each completed segment to `results/logs/`, then updates a submission only after CPU verification. Press Ctrl+C to stop a continuous run.
+
+## Direct fixed-budget runs
+
+For experiments and fair algorithm comparisons, invoke the population runner directly. A fixed run retains only that algorithm's population and random state for the full budget.
 
 ```powershell
-& $python -m unittest benchmarks.test_population_algorithms benchmarks.test_lm_cma_es benchmarks.test_coverage_heuristic benchmarks.test_main_algorithm_selection benchmarks.test_coordinate_search_restart benchmarks.test_candidate_save
+& $python -u -m benchmarks.run_optimization `
+  --case hard `
+  --algorithm de `
+  --iterations 10000000 `
+  --population-size 4096 `
+  --batch-size 2048 `
+  --restart-after 100 `
+  --seed 239817
 ```
 
-### Algorithms
+Genetic search:
 
-| Option | Behavior |
-|---|---|
-| `auto` (default) | Rotates through all six methods after every 5 million evaluations, regardless of improvement. Easy starts with coordinate search; medium and hard start with DE. |
-| `coordinate-search` | Proposes changes that cross projected grid-cell boundaries and samples single-satellite moves across the available satellites. |
-| `de` | Differential evolution with whole-satellite crossover, bounded adaptive scale, neutral moves across score plateaus, and population refreshes. |
-| `genetic` | Rank-based selection with secondary-observation tie-breaking, broader whole-satellite mutations, and retained global explorers at restarts. |
-| `block-anneal` | Proposes mostly small satellite blocks with occasional full-formation moves; uses a separate, cooler annealing schedule. |
-| `lm-cma-es` | Limited-memory covariance adaptation in normalized coordinates; restarts from the saved best at increasingly broad scales after extended stagnation. |
-| `heuristic` | Combines coverage-guided mutations and greedy grid-scaled probes with parents from both the incumbent and diverse population members; keeps only strict best improvements. |
+```powershell
+& $python -u -m benchmarks.run_optimization `
+  --case hard `
+  --algorithm genetic `
+  --iterations 20000000 `
+  --population-size 1024 `
+  --batch-size 2048 `
+  --restart-after 50 `
+  --temperature 0.35 `
+  --seed 239820
+```
 
-When candidates tie on the official weakest-observation fitness, the search methods prefer the one with the higher sum across all observations. This only guides exploration; the official score remains the sole criterion for updating the saved best.
+Run coordinate search directly:
 
-The standalone random-search utility is not a `main.py --algorithm` option; run it with `& $python -m benchmarks.run_random_search --case hard --evaluations 10000000`.
+```powershell
+& $python -u -m benchmarks.run_coordinate_search `
+  --case hard `
+  --evaluations 10000000 `
+  --batch-size 2048 `
+  --seed 777
+```
 
-### Recommendations by case
+The standalone random-search tool is also available:
 
-| Case | Recommended algorithm | Why |
-|---|---|---|
-| Easy | `coordinate-search` | Only five satellites; direct grid-boundary moves target this discrete objective. This is a structure-based recommendation, not a controlled comparison. |
-| Medium | `de` | DE produced the current saved best (`-1.80785246877`); coordinate search's recorded medium run plateaued at a weaker score. |
-| Hard | `de` | The current saved hard candidate came from DE. Keep `auto` if you want it to cycle through the other methods, including LM-CMA-ES. |
+```powershell
+& $python -u -m benchmarks.run_random_search --case hard --evaluations 10000000
+```
 
-These are practical starting choices, not guarantees; the recorded searches were not equal-budget head-to-head trials. In auto mode, each method gets a 5-million-evaluation segment, then the launcher rotates to the next method whether or not the score improved. Easy starts with coordinate search; medium and hard start with DE. Explicit coordinate-search segments use 10 million evaluations; other explicit population-search segments use 2 million, except explicitly selected hard DE, which uses 10 million. LM-CMA-ES uses `max(4, 4 + floor(3*ln(6*n_sat)))` offspring by default. Explicitly selecting one algorithm disables switching; for example, `--hard --algorithm de` continues DE rather than switching methods.
+Use a fresh seed and a separate checkpoint path for each independent experiment. The saved RNG state is not a population checkpoint; only the incumbent candidate and RNG stream are restored.
 
-Hard DE defaults to a population of 4096; LM-CMA-ES uses a dimension-scaled default, and other population searches default to 256. Without `--iterations`, the existing per-segment budgets remain: 5 million in auto, 10 million for explicit coordinate search and hard DE, and 2 million for other explicit population searches. `--iterations N` overrides that segment budget. Other useful options include `--batch-size`, `--population-size`, `--seed`, `--velocity-bound`, `--restart-after`, `--temperature` (genetic selection), and `--anneal-temperature` (coordinate/block annealing; default `0.005`). Run `& $python main.py --help` for the current CLI options.
+## Search budgets and behavior
 
-Coordinate search randomizes a partial restart only after 1,000,000 evaluations without a new best, independently of auto's 5-million-evaluation algorithm rotation. It randomly chooses 1 to 25% of the satellite states (1 to 10 for a 40-satellite case), then enforces the observation bounds. A new best resets the stagnation counter, and the saved best is retained unless a feasible candidate scores better.
+The default budgets are implemented in [`main.py`](main.py):
 
-## Saved state and submissions
+- `auto`: 5 million evaluations per algorithm segment.
+- Explicit coordinate search: 10 million evaluations unless `--iterations` is supplied.
+- Explicit hard DE: 10 million evaluations unless `--iterations` is supplied.
+- Other explicit population searches: 2 million evaluations unless `--iterations` is supplied.
 
-- `results/cases/<case>_min_best.npz` stores the best candidate and its score.
-- `results/cases/<case>_optimizer_rng.npz` stores the population optimizer's random-number state at the end of a segment. The population itself is not checkpointed.
-- `results/cases/<case>_boundary_checkpoint.npz` stores coordinate-search progress.
-- `results/submissions/<case>_min_submission.json` stores the ESA submission for that case.
-- `results/logs/` contains the live output and final summary for each segment.
+Useful `main.py` options:
 
-For a valid saved candidate, optimizer writes only replace it with a strictly better score. Coordinate search also reconciles a resumed checkpoint with the latest saved candidate.
+```text
+--iterations N       Override the per-segment budget
+--batch-size N       GPU batch size
+--population-size N  Population size
+--seed N             Base seed or fixed population seed
+--restart-after N    Stagnation generations before refresh/restart
+--temperature F      Genetic parent-selection temperature
+--velocity-bound F   Search-space velocity bound
+--target-score F     Stop the cutoff after this best score is reached
+--resume-rng PATH    Resume a population RNG checkpoint
+--rng-jump N         Advance the RNG stream
+```
 
-If interrupted with `Ctrl+C`, saved candidate improvements remain, but the random state from an unfinished segment may not be saved. Resuming restores the last completed random-state checkpoint and creates a new population around the saved best.
+`--target-score` is not a termination flag. Once the target is reached, it removes the score cutoff and the continuous run continues.
 
-To CPU-verify the saved candidates and regenerate the three JSON files:
+## Practical experiment strategy
+
+The saved values show repeated hard/medium searches, but many log segments finish without improvement:
+
+- Keep hard DE or genetic runs long enough to test an entire population basin.
+- Change seeds for basin diversity; repeating the incumbent/RNG checkpoint may repeat the same plateau.
+- Use genetic or DE for broad search, coordinate search for grid-boundary refinement, and block annealing for small local moves.
+- Compare results at equal evaluation budgets and seeds, not just total wall-clock time.
+- One GPU search should be the default on the RTX 5070 Laptop GPU because search processes contend for the same device memory and may reduce throughput.
+
+## Verification and submission
+
+CPU-verify every saved candidate and regenerate the three submission JSON files:
 
 ```powershell
 & $python -m benchmarks.build_submission
 ```
 
-This command does not upload anything to ESA. Do not run multiple GPU searches at the same time; they contend for the same GPU and do not share a population.
+`build_submission.py`:
 
-## Project files and environment
+- Loads the official UDP for each case.
+- Checks candidate shape and ESA input bounds.
+- Checks all observation-space feasibility constraints.
+- Evaluates the candidate on the CPU reference implementation.
+- Confirms it matches the saved GPU fitness.
+- Writes `results/submissions/<case>_min_submission.json`.
+
+This command does not upload candidates to ESA.
+
+## Saved artifacts
 
 | Path | Purpose |
 |---|---|
-| `main.py` | Continuous case runner, auto switching, logs, and submission updates |
-| `benchmarks/run_optimization.py` | GPU population optimizers |
-| `benchmarks/run_coordinate_search.py` | Grid-boundary-guided coordinate search |
-| `benchmarks/run_random_search.py` | Independent random-search utility |
-| `benchmarks/build_submission.py` | CPU verification and ESA JSON generation |
-| `src/evaluation/cases.py` | Case configuration and matching reference selection |
-| `src/evaluation/gpu.py` | Batched PyTorch GPU scoring |
-| `src/evaluation/constraints.py` | Observation-bound enforcement and checks |
-| `reference/` | Local evaluator files; do not edit |
+| `results/cases/<case>_min_best.npz` | Current best candidate, fitness, and run metadata. |
+| `results/cases/<case>_optimizer_rng.npz` | Population RNG checkpoint. |
+| `results/cases/<case>_boundary_checkpoint.npz` | Coordinate-search incumbent and stagnation state. |
+| `results/cases/<case>_coordinate_checkpoint.npz` | Coordinate-search auxiliary state. |
+| `results/cases/<case>_random_checkpoint.npz` | Random-search state. |
+| `results/submissions/<case>_min_submission.json` | ESA submission payload. |
+| `results/logs/*.log` | Search stdout, progress, interruptions, and final summaries. |
 
-The evaluator requires `heyoka==3.2.0`. GPU population search additionally requires CUDA-enabled PyTorch. The documented environment is `esa_official_311`; the tested GPU is an NVIDIA GeForce RTX 5070 Laptop GPU.
+Candidate improvements are protected by file locks in `save_candidate_progress()`. Interrupted runs preserve completed candidate improvements, while an unfinished segment may not have a newly saved RNG checkpoint.
+
+## Tests and GPU diagnostics
+
+Focused unit tests:
+
+```powershell
+& $python -m unittest `
+  benchmarks.test_population_algorithms `
+  benchmarks.test_lm_cma_es `
+  benchmarks.test_coverage_heuristic `
+  benchmarks.test_main_algorithm_selection `
+  benchmarks.test_coordinate_search_restart `
+  benchmarks.test_candidate_save
+```
+
+Additional GPU diagnostics:
+
+```powershell
+& $python benchmarks.compare_gpu
+& $python benchmarks.benchmark_batch
+& $python benchmarks.test_autocorrelation
+& $python benchmarks.test_pygmo_gpu
+```
+
+## Repository layout
+
+```text
+main.py                         Continuous case and algorithm launcher
+benchmarks/
+  run_optimization.py           CUDA population search runner
+  run_coordinate_search.py      Grid-boundary coordinate search
+  run_random_search.py          Independent random search
+  coverage_heuristic.py         Coverage-guided heuristic
+  lm_cma_es.py                  Limited-memory CMA-ES
+  build_submission.py           CPU verification and ESA JSON generation
+  test_*.py                     Unit, algorithm, and launcher tests
+src/evaluation/
+  cases.py                      ESA case metadata and reference loading
+  gpu.py                        Batched PyTorch/CUDA evaluator
+  constraints.py                Observation-bound enforcement
+  objectives.py                 CPU observation scores
+reference/                      Supplied ESA/Heyoka reference evaluators
+results/cases/                  Saved candidates and optimizer checkpoints
+results/submissions/            ESA-ready JSON submissions
+results/logs/                   Segment logs and experiment history
+```
+
+## Environment
+
+- Python 3.11 (documented environment: `esa_official_311`)
+- NumPy
+- CUDA-enabled PyTorch
+- `heyoka==3.2.0`
+- CUDA-capable NVIDIA GPU
+
+The existing test environment is an NVIDIA GeForce RTX 5070 Laptop GPU.
